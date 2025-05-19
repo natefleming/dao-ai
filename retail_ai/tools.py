@@ -26,7 +26,9 @@ from langchain_core.vectorstores.base import VectorStore
 from loguru import logger
 from mlflow.models import ModelConfig
 from pydantic import BaseModel, Field
-from unitycatalog.ai.core.base import FunctionExecutionResult
+
+from unitycatalog.ai.core.base import FunctionExecutionResult, set_uc_function_client
+
 
 
 class ProductFeature(BaseModel):
@@ -427,15 +429,13 @@ def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
-    # set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
+    #set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
     if isinstance(function_names, str):
         function_names = [function_names]
-    toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=function_names, client=client
-    )
+    toolkit: UCFunctionToolkit = UCFunctionToolkit(function_names=function_names, client=client)
 
     return toolkit.tools
 
