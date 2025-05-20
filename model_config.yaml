@@ -32,64 +32,39 @@ resources:
     embedding_model: &embedding_model
       name: databricks-gte-large-en
 
-<<<<<<< HEAD
-  genie:
-    space_id: 01f03432c01a1b18b710fe597c2d68ee
-
-  tables:
-    - demos_genie.rcg_store_manager_gold.products
-    - demos_genie.rcg_store_manager_gold.inventory
-
-  functions:
-
-    - demos_genie.rcg_store_manager_gold.find_inventory_by_upc
-    - demos_genie.rcg_store_manager_gold.find_inventory_by_sku
-    - demos_genie.rcg_store_manager_gold.find_store_inventory_by_sku
-    - demos_genie.rcg_store_manager_gold.find_store_inventory_by_upc
-    - demos_genie.rcg_store_manager_gold.find_product_by_sku
-    - demos_genie.rcg_store_manager_gold.find_product_by_upc
-    # - demos_genie.rcg_store_manager_gold.find_nearby_stores
-    # - demos_genie.rcg_store_manager_gold.check_store_availability
-    # - demos_genie.rcg_store_manager_gold.get_store_details
-=======
 
   genie_rooms:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"
       description: "A room for Genie agents to interact"
-      space_id: 01f01c91f1f414d59daaefd2b7ec82ea
+      space_id: 01f03432c01a1b18b710fe597c2d68ee
 
   tables:
     product_table: &product_table
-      name: nfleming.retail_ai.products
+      name: demos_genie.rcg_store_manager_gold.products
     inventory_table: &inventory_table
-      name: nfleming.retail_ai.inventory
+      name: demos_genie.rcg_store_manager_gold.inventory
 
   functions:
     find_product_by_sku: &find_product_by_sku
-      name: nfleming.retail_ai.find_product_by_sku
+      name: demos_genie.rcg_store_manager_gold.find_product_by_sku
     find_product_by_upc: &find_product_by_upc
-      name: nfleming.retail_ai.find_product_by_upc
+      name: demos_genie.rcg_store_manager_gold.find_product_by_upc
     find_inventory_by_sku: &find_inventory_by_sku  
-      name: nfleming.retail_ai.find_inventory_by_sku
+      name: demos_genie.rcg_store_manager_gold.find_inventory_by_sku
     find_inventory_by_upc: &find_inventory_by_upc  
-      name: nfleming.retail_ai.find_inventory_by_upc
+      name: demos_genie.rcg_store_manager_gold.find_inventory_by_upc
     find_store_inventory_by_upc: &find_store_inventory_by_upc  
-      name: nfleming.retail_ai.find_store_inventory_by_upc
+      name: demos_genie.rcg_store_manager_gold.find_store_inventory_by_upc
     find_store_inventory_by_sku: &find_store_inventory_by_sku  
-      name: nfleming.retail_ai.find_store_inventory_by_sku
->>>>>>> 00cfcac (Added yaml anchors for warehouses, tables, connections and functions)
+      name: demos_genie.rcg_store_manager_gold.find_store_inventory_by_sku
 
   warehouses:
     shared_endpoint_warehouse: &shared_endpoint_warehouse
       name: "Shared Endpoint Warehouse"
       description: "A warehouse for shared endpoints"
-      warehouse_id: 148ccb90800933a1
+      warehouse_id: 75fd8278393d07eb
 
-<<<<<<< HEAD
-  warehouses: 
-    - 75fd8278393d07eb
-=======
   databases:
     retail_database: &retail_database
       name: "Retail Database"
@@ -97,7 +72,6 @@ resources:
       connection_kwargs:
       autocommit: True
       prepare_threshold: 0
->>>>>>> 00cfcac (Added yaml anchors for warehouses, tables, connections and functions)
     
     
 guardrails:
@@ -270,7 +244,7 @@ retriever:
     - category_name
     - subcategory_name
   search_parameters:
-    num_results: 10
+    num_results: 20
     filter: {}
     query_type: ANN
 
