@@ -107,7 +107,13 @@ def router_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def general_node(model_config: ModelConfig) -> AgentCallable:
+<<<<<<< HEAD
     model: str = model_config.get("agents").get("general").get("model").get("name")
+=======
+    model: str = (
+        model_config.get("agents").get("general").get("model").get("name")
+    )
+>>>>>>> 00cfcac (Added yaml anchors for warehouses, tables, connections and functions)
     prompt: str = model_config.get("agents").get("general").get("prompt")
     guardrails: Sequence[dict[str, Any]] = (
         model_config.get("agents").get("general").get("guardrails") or []
@@ -158,7 +164,13 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def product_node(model_config: ModelConfig) -> AgentCallable:
+<<<<<<< HEAD
     model: str = model_config.get("agents").get("product").get("model").get("name")
+=======
+    model: str = (
+        model_config.get("agents").get("product").get("model").get("name")
+    )
+>>>>>>> 00cfcac (Added yaml anchors for warehouses, tables, connections and functions)
     prompt: str = model_config.get("agents").get("product").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("product").get("guardrails") or []
@@ -180,9 +192,7 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         .get("warehouse_id")
     )
 
-    warehouse_id: str = next(
-        iter(model_config.get("resources").get("warehouses", [])), None
-    )
+    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -230,7 +240,13 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def inventory_node(model_config: ModelConfig) -> AgentCallable:
+<<<<<<< HEAD
     model: str = model_config.get("agents").get("inventory").get("model").get("name")
+=======
+    model: str = (
+        model_config.get("agents").get("inventory").get("model").get("name")
+    )
+>>>>>>> 00cfcac (Added yaml anchors for warehouses, tables, connections and functions)
     prompt: str = model_config.get("agents").get("inventory").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("inventory").get("guardrails") or []
@@ -249,9 +265,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     warehouse_id: str = next(
         iter(model_config.get("resources").get("warehouses", [])), None)
 
-    warehouse_id: str = next(
-        iter(model_config.get("resources").get("warehouses", [])), None
-    )
+    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -301,7 +315,13 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
 
 
 def comparison_node(model_config: ModelConfig) -> AgentCallable:
+<<<<<<< HEAD
     model: str = model_config.get("agents").get("comparison").get("model").get("name")
+=======
+    model: str = (
+        model_config.get("agents").get("comparison").get("model").get("name")
+    )
+>>>>>>> 00cfcac (Added yaml anchors for warehouses, tables, connections and functions)
     prompt: str = model_config.get("agents").get("comparison").get("prompt")
     guardrails: dict[str, Any] = (
         model_config.get("agents").get("comparison").get("guardrails") or []
@@ -326,9 +346,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         iter(model_config.get("resources").get("warehouses", [])), None
     )
 
-    warehouse_id: str = next(
-        iter(model_config.get("resources").get("warehouses", [])), None
-    )
+    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
