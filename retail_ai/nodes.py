@@ -17,6 +17,8 @@ from retail_ai.guardrails import reflection_guardrail, with_guardrails
 from retail_ai.messages import last_human_message
 from retail_ai.state import AgentConfig, AgentState
 from retail_ai.tools import (
+    create_find_product_by_sku_tool,
+    create_find_product_by_upc_tool,
     create_find_inventory_by_sku_tool,
     create_find_inventory_by_upc_tool,
     create_find_product_by_sku_tool,
@@ -24,12 +26,6 @@ from retail_ai.tools import (
     create_find_store_inventory_by_sku_tool,
     create_find_store_inventory_by_upc_tool,
     find_product_details_by_description_tool,
-    create_find_product_by_sku_tool,
-    create_find_product_by_upc_tool,
-    create_find_inventory_by_sku_tool,
-    create_find_inventory_by_upc_tool,
-    create_find_store_inventory_by_sku_tool,
-    create_find_store_inventory_by_upc_tool,
     search_tool,
 )
 from retail_ai.types import AgentCallable
@@ -184,7 +180,9 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         .get("warehouse_id")
     )
 
-    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
+    )
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -251,7 +249,9 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     warehouse_id: str = next(
         iter(model_config.get("resources").get("warehouses", [])), None)
 
-    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
+    )
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -320,6 +320,10 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         .get("warehouses")
         .get("shared_endpoint_warehouse")
         .get("warehouse_id")
+    )
+
+    warehouse_id: str = next(
+        iter(model_config.get("resources").get("warehouses", [])), None
     )
 
     warehouse_id: str = next(
