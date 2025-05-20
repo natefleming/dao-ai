@@ -24,6 +24,12 @@ from retail_ai.tools import (
     create_find_store_inventory_by_sku_tool,
     create_find_store_inventory_by_upc_tool,
     find_product_details_by_description_tool,
+    create_find_product_by_sku_tool,
+    create_find_product_by_upc_tool,
+    create_find_inventory_by_sku_tool,
+    create_find_inventory_by_upc_tool,
+    create_find_store_inventory_by_sku_tool,
+    create_find_store_inventory_by_upc_tool,
     search_tool,
 )
 from retail_ai.types import AgentCallable
@@ -178,6 +184,8 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         .get("warehouse_id")
     )
 
+    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
@@ -189,12 +197,13 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools(
-            [
-                "nfleming.retail_ai.find_product_by_sku",
-                "nfleming.retail_ai.find_product_by_upc",
-            ]
-        )
+        tools = []
+        # tools = create_uc_tools(
+        #     [
+        #         "nfleming.retail_ai.find_product_by_sku",
+        #         "nfleming.retail_ai.find_product_by_upc",
+        #     ]
+        # )
 
         tools += [
             find_product_details_by_description_tool(
@@ -242,6 +251,8 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
     warehouse_id: str = next(
         iter(model_config.get("resources").get("warehouses", [])), None)
 
+    warehouse_id: str = next(iter(model_config.get("resources").get("warehouses", [])), None)
+
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
         llm: LanguageModelLike = ChatDatabricks(model=model, temperature=0.1)
@@ -253,12 +264,13 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools(
-            [
-                "nfleming.retail_ai.find_inventory_by_sku",
-                "nfleming.retail_ai.find_inventory_by_upc",
-            ]
-        )
+        tools = []
+        # tools = create_uc_tools(
+        #     [
+        #         "nfleming.retail_ai.find_inventory_by_sku",
+        #         "nfleming.retail_ai.find_inventory_by_upc",
+        #     ]
+        # )
 
         tools += [
             find_product_details_by_description_tool(
@@ -325,12 +337,13 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools(
-            [
-                "nfleming.retail_ai.find_product_by_sku",
-                "nfleming.retail_ai.find_product_by_upc",
-            ]
-        )
+        tools = []
+        # tools = create_uc_tools(
+        #     [
+        #         "nfleming.retail_ai.find_product_by_sku",
+        #         "nfleming.retail_ai.find_product_by_upc",
+        #     ]
+        # )
 
         tools += [
             find_product_details_by_description_tool(

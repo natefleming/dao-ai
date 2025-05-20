@@ -603,7 +603,6 @@ def create_find_product_by_sku_tool(warehouse_id: str) -> None:
 
     return find_product_by_sku
 
-
 def create_find_product_by_upc_tool(warehouse_id: str) -> None:
     @tool
     def find_product_by_upc(upcs: list[str]) -> tuple:
@@ -725,7 +724,6 @@ def create_find_inventory_by_sku_tool(warehouse_id: str) -> None:
 
     return find_inventory_by_sku
 
-
 def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
     @tool
     def find_inventory_by_upc(upcs: list[str]) -> tuple:
@@ -781,15 +779,17 @@ def create_find_inventory_by_upc_tool(warehouse_id: str) -> None:
 
     return find_inventory_by_upc
 
-
 def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
     @tool
-    def find_store_inventory_by_sku(store: str, skus: list[str]) -> tuple:
+    def find_store_inventory_by_sku(
+        store: str,
+        skus: list[str]
+    ) -> tuple:
         """
         Find product details by one or more sku values.
         This tool retrieves detailed information about a product based on its SKU.
 
-        Args:
+        Args: 
             store (str): The store to search for the inventory
 
             skus (list[str]): One or more unique identifiers for retrieve. It may help to use another tool to provide this value. SKU values are between 5-8 alpha numeric characters. SKUs can follow several patterns:
@@ -855,17 +855,19 @@ def create_find_store_inventory_by_sku_tool(warehouse_id: str) -> None:
 
     return find_store_inventory_by_sku
 
-
 def create_find_store_inventory_by_upc_tool(warehouse_id: str) -> None:
     @tool
-    def find_store_inventory_by_upc(store: str, upcs: list[str]) -> tuple:
+    def find_store_inventory_by_upc(
+        store: str,
+        upcs: list[str]
+    ) -> tuple:
         """
         Find product details by one or more sku values.
         This tool retrieves detailed information about a product based on its SKU.
 
-        Args:
+        Args: 
             store (str): The store to search for the inventory
-            upcs (list[str]): One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters.
+            upcs (list[str]): One or more unique identifiers for retrieve. It may help to use another tool to provide this value. UPC values are between 10-16 alpha numeric characters. 
 
 
         Returns: (tuple): A tuple containing (
