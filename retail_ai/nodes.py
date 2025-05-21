@@ -112,14 +112,9 @@ def general_node(model_config: ModelConfig) -> AgentCallable:
     guardrails: Sequence[dict[str, Any]] = (
         model_config.get("agents").get("general").get("guardrails") or []
     )
-
-<<<<<<< HEAD
     retriever_config: dict[str, Any] = model_config.get("retrievers").get(
         "products_retriever"
     )
-=======
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
->>>>>>> e961ed4 (decouple retrieval from vector stores in model config)
     index_name: str = retriever_config.get("vector_store").get("index_name")
     endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
     columns: Sequence[str] = retriever_config.get("columns")
@@ -168,13 +163,10 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("product").get("guardrails") or []
     )
 
-<<<<<<< HEAD
+
     retriever_config: dict[str, Any] = model_config.get("retrievers").get(
         "products_retriever"
     )
-=======
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
->>>>>>> e961ed4 (decouple retrieval from vector stores in model config)
     index_name: str = retriever_config.get("vector_store").get("index_name")
     endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
     columns: Sequence[str] = retriever_config.get("columns")
@@ -187,8 +179,6 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         .get("shared_endpoint_warehouse")
         .get("warehouse_id")
     )
-
-    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
 
     @mlflow.trace()
     def product(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -242,19 +232,22 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("inventory").get("guardrails") or []
     )
 
-<<<<<<< HEAD
+
     retriever_config: dict[str, Any] = model_config.get("retrievers").get(
         "products_retriever"
     )
-=======
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
->>>>>>> e961ed4 (decouple retrieval from vector stores in model config)
     index_name: str = retriever_config.get("vector_store").get("index_name")
     endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
     columns: Sequence[str] = retriever_config.get("columns")
     search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
-    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
+
+    warehouse_id: str = (
+        model_config.get("resources")
+        .get("warehouses")
+        .get("shared_endpoint_warehouse")
+        .get("warehouse_id")
+    )
 
     @mlflow.trace()
     def inventory(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -310,29 +303,22 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("comparison").get("guardrails") or []
     )
 
-<<<<<<< HEAD
+
     retriever_config: dict[str, Any] = model_config.get("retrievers").get(
         "products_retriever"
     )
-=======
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
->>>>>>> e961ed4 (decouple retrieval from vector stores in model config)
     index_name: str = retriever_config.get("vector_store").get("index_name")
     endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
     columns: Sequence[str] = retriever_config.get("columns")
     search_parameters: dict[str, Any] = retriever_config.get("search_parameters", {})
     num_results: int = search_parameters.get("num_results", 10)
-<<<<<<< HEAD
+
     warehouse_id: str = (
         model_config.get("resources")
         .get("warehouses")
         .get("shared_endpoint_warehouse")
         .get("warehouse_id")
     )
-
-=======
-    warehouse_id: str = model_config.get("resources").get("warehouses").get("shared_endpoint_warehouse").get("warehouse_id")
->>>>>>> e961ed4 (decouple retrieval from vector stores in model config)
 
     @mlflow.trace()
     def comparison(state: AgentState, config: AgentConfig) -> dict[str, BaseMessage]:
@@ -421,13 +407,10 @@ def diy_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("diy").get("guardrails") or []
     )
 
-<<<<<<< HEAD
+
     retriever_config: dict[str, Any] = model_config.get("retrievers").get(
         "products_retriever"
     )
-=======
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
->>>>>>> e961ed4 (decouple retrieval from vector stores in model config)
     index_name: str = retriever_config.get("vector_store").get("index_name")
     endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
     columns: Sequence[str] = retriever_config.get("columns")
@@ -480,13 +463,9 @@ def recommendation_node(model_config: ModelConfig) -> AgentCallable:
         model_config.get("agents").get("recommendation").get("guardrails") or []
     )
 
-<<<<<<< HEAD
     retriever_config: dict[str, Any] = model_config.get("retrievers").get(
         "products_retriever"
     )
-=======
-    retriever_config: dict[str, Any] = model_config.get("retrievers").get("products_retriever")
->>>>>>> e961ed4 (decouple retrieval from vector stores in model config)
     index_name: str = retriever_config.get("vector_store").get("index_name")
     endpoint_name: str = retriever_config.get("vector_store").get("endpoint_name")
     columns: Sequence[str] = retriever_config.get("columns")
