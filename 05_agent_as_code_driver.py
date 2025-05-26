@@ -144,6 +144,7 @@ for _, vector_store  in config.get("resources").get("vector_stores", {}).items()
     index_name: str = vector_store["index_name"]
     vector_indexes.add(index_name)
 
+<<<<<<< HEAD
 warehouse_ids: set = set()
 for _, warehouse  in config.get("resources").get("warehouses", {}).items():
     warehouse_id: str = warehouse["warehouse_id"]
@@ -184,6 +185,20 @@ resources += [DatabricksGenieSpace(genie_space_id=s) for s in space_ids if s]
 resources += [DatabricksFunction(function_name=f) for f in function_names if f]
 resources += [DatabricksTable(table_name=t) for t in tables_names if t]
 resources += [DatabricksUCConnection(connection_name=c) for c in connection_names if c]
+=======
+resources: list[DatabricksResource] = []
+
+if space_id:
+    resources += [DatabricksGenieSpace(genie_space_id=space_id)]
+
+if index_name:
+    resources += [DatabricksVectorSearchIndex(index_name=index_name)]
+
+resources += [DatabricksServingEndpoint(endpoint_name=m) for m in model_names if m]
+resources += [DatabricksFunction(function_name=f) for f in functions if f]
+resources += [DatabricksTable(table_name=t) for t in tables if t]
+resources += [DatabricksSQLWarehouse(warehouse_id=w) for w in warehouses if w]
+>>>>>>> 178c403 (fixed incorrect variable name)
 
 input_example: dict[str, Any] = config.get("app").get("diy_example")
 
@@ -219,7 +234,8 @@ with mlflow.start_run(run_name="agent"):
         code_paths=["retail_ai"],
         model_config=config.to_dict(),
         artifact_path="agent",
-        pip_requirements=pip_requirements,
+        extra_pip_requirements=[f"databricks-connect=={get_distribution('databricks-connect').version}"],
+        #pip_requirements=pip_requirements,
         resources=resources,
         #auth_policy=auth_policy,
     )

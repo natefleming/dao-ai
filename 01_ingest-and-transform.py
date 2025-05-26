@@ -3,12 +3,20 @@ from typing import Sequence
 import tomli
 from pathlib import Path
 
+<<<<<<< HEAD
 # Read dependencies from pyproject.toml
 with open("pyproject.toml", "rb") as f:
     pyproject = tomli.load(f)
     
 pip_requirements = pyproject["project"]["dependencies"]
 pip_requirements_str = " ".join(pip_requirements)
+=======
+pip_requirements: Sequence[str] = (
+  "databricks-sdk",
+  "python-dotenv",
+  "mlflow"
+)
+>>>>>>> 178c403 (fixed incorrect variable name)
 
 # COMMAND ----------
 
@@ -20,10 +28,21 @@ pip_requirements_str = " ".join(pip_requirements)
 from typing import Sequence
 from importlib.metadata import version
 
+<<<<<<< HEAD
 # Print installed versions for verification
 for req in pip_requirements:
     pkg_name = req.split("[")[0].split(">=")[0].split("==")[0].strip('"')
     print(f"{pkg_name}=={version(pkg_name)}")
+=======
+pip_requirements: Sequence[str] = (
+  f"databricks-sdk=={version('databricks-sdk')}",
+  f"python-dotenv=={version('python-dotenv')}",
+  f"mlflow=={version('mlflow')}",
+)
+
+print("\n".join(pip_requirements))
+
+>>>>>>> 178c403 (fixed incorrect variable name)
 
 # COMMAND ----------
 
