@@ -1,0 +1,103 @@
+# Application Configuration
+app:
+  title: "Store Companion"
+  icon: "🏪"
+  layout: "wide"
+  version: "1.0.0"
+  debug: false
+
+# Store Information
+stores:
+  downtown:
+    id: 101
+    name: "Downtown Market"
+    type: "Flagship"
+    address: "123 Market Street"
+    city: "San Francisco"
+    state: "CA"
+    zip_code: "94105"
+    size_sqft: 12000
+    rating: 4.5
+    hours:
+      monday: {"open": "07:00", "close": "22:00"}
+      tuesday: {"open": "07:00", "close": "22:00"}
+      wednesday: {"open": "07:00", "close": "22:00"}
+      thursday: {"open": "07:00", "close": "22:00"}
+      friday: {"open": "07:00", "close": "23:00"}
+      saturday: {"open": "08:00", "close": "23:00"}
+      sunday: {"open": "08:00", "close": "21:00"}
+  marina:
+    id: 102
+    name: "Marina Market"
+    type: "Express"
+    address: "2200 Chestnut Street"
+    city: "San Francisco"
+    state: "CA"
+    zip_code: "94123"
+    size_sqft: 8000
+    rating: 4.3
+    hours:
+      monday: {"open": "08:00", "close": "21:00"}
+      tuesday: {"open": "08:00", "close": "21:00"}
+      wednesday: {"open": "08:00", "close": "21:00"}
+      thursday: {"open": "08:00", "close": "21:00"}
+      friday: {"open": "08:00", "close": "22:00"}
+      saturday: {"open": "08:00", "close": "22:00"}
+      sunday: {"open": "09:00", "close": "20:00"}
+  mission:
+    id: 103
+    name: "Mission Market"
+    type: "Flagship"
+    address: "2001 Mission Street"
+    city: "San Francisco"
+    state: "CA"
+    zip_code: "94110"
+    size_sqft: 15000
+    rating: 4.7
+    hours:
+      monday: {"open": "07:00", "close": "22:00"}
+      tuesday: {"open": "07:00", "close": "22:00"}
+      wednesday: {"open": "07:00", "close": "22:00"}
+      thursday: {"open": "07:00", "close": "22:00"}
+      friday: {"open": "07:00", "close": "23:00"}
+      saturday: {"open": "08:00", "close": "23:00"}
+      sunday: {"open": "08:00", "close": "21:00"}
+
+# User Roles and Permissions
+roles:
+  store_associate:
+    can_view_orders: true
+    can_process_orders: true
+    can_view_inventory: true
+    can_reorder_inventory: false
+    can_view_staff_schedule: true
+    can_modify_staff_schedule: false
+    can_view_sales_data: false
+  store_manager:
+    can_view_orders: true
+    can_process_orders: true
+    can_view_inventory: true
+    can_reorder_inventory: true
+    can_view_staff_schedule: true
+    can_modify_staff_schedule: true
+    can_view_sales_data: true
+
+# Chat Interface Configuration
+chat:
+  max_tokens: 1000
+  temperature: 0.7
+  message: "How can I help you today?"
+  placeholder: "e.g., Where are the yoga mats?"
+
+# Model Serving Configuration
+model:
+  max_tokens: 1000
+  temperature: 0.7
+  stop: ["\n"]
+  n: 1
+  stream: false
+
+# Database Configuration
+database:
+  mock: true  # Set to false when using real database
+  connection_timeout: 30 

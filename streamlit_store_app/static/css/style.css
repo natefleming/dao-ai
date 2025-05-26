@@ -1,0 +1,41 @@
+/* Context Switcher Button */
+button[data-testid="baseButton-secondary"]:has(div:contains("🏪")) {
+    position: fixed !important;
+    top: 0.5rem !important;
+    right: 0.5rem !important;
+    z-index: 1000 !important;
+    padding: 0.5rem 1rem !important;
+    background: rgba(255, 255, 255, 0.9) !important;
+    border: 1px solid #e0e0e0 !important;
+    border-radius: 20px !important;
+    cursor: pointer !important;
+    box-shadow: 0 2px 5px rgba(0,0,0,0.1) !important;
+    transition: all 0.3s ease !important;
+    font-size: 0.9rem !important;
+}
+
+button[data-testid="baseButton-secondary"]:has(div:contains("🏪")):hover {
+    background: white !important;
+    box-shadow: 0 3px 8px rgba(0,0,0,0.15) !important;
+    transform: translateY(-1px) !important;
+}
+
+/* Context Switcher Panel */
+[data-testid="stSidebar"] {
+    z-index: 1001;
+    background: white;
+    border-left: 1px solid #e0e0e0;
+    box-shadow: -2px 0 5px rgba(0,0,0,0.1);
+}
+
+[data-testid="stSidebar"] [data-testid="stMarkdownContainer"] h3 {
+    margin-top: 0;
+    padding-top: 1rem;
+    border-bottom: 1px solid #e0e0e0;
+    padding-bottom: 0.5rem;
+}
+
+/* Hide default Streamlit toolbar */
+div[data-testid="stToolbar"] {
+    visibility: hidden;
+} 
