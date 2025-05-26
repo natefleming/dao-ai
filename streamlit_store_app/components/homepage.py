@@ -5,6 +5,8 @@ from datetime import datetime, timedelta
 from utils.database import query
 from utils.store_context import check_permission
 from components.metrics import display_metric_card, display_alert
+from components.chat import show_chat_container
+import streamlit_modal as modal
 
 def show_notifications_modal():
     """Display notifications in an expandable modal."""
@@ -555,25 +557,154 @@ def show_performance_tab():
                 </div>
             """, unsafe_allow_html=True)
 
+def simulate_chat_notification():
+    """Simulate receiving a chat notification (for demo purposes)."""
+    if "chat_notifications" not in st.session_state:
+        st.session_state.chat_notifications = 0
+    
+    # Only add notifications if chat is closed
+    if not st.session_state.get("chat_window_open", False):
+        st.session_state.chat_notifications += 1
+
 def show_persistent_chat():
-    """Display a persistent, easily accessible chat widget."""
+    """Display a floating chat icon in the lower right corner that opens a chat modal."""
     # Initialize chat state
-    if "chat_expanded" not in st.session_state:
-        st.session_state.chat_expanded = False
+    if "chat_notifications" not in st.session_state:
+        st.session_state.chat_notifications = 0
     
-    # Create a floating chat button using columns for positioning
-    col1, col2, col3 = st.columns([8, 1, 1])
+    # Get current chat status
+    chat_status = st.session_state.get("chat_status", "available")
     
-    with col3:
-        if st.button("💬", key="chat_toggle", help="AI Assistant"):
-            st.session_state.chat_expanded = not st.session_state.chat_expanded
+    # Create notification badge HTML
+    notification_badge = ""
+    if st.session_state.chat_notifications > 0:
+        notification_badge = f'''
+        <span style="
+            position: absolute;
+            top: -5px;
+            right: -5px;
+            background: #ff4757;
+            color: white;
+            border-radius: 50%;
+            width: 20px;
+            height: 20px;
+            font-size: 12px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-weight: bold;
+        ">{st.session_state.chat_notifications}</span>
+        '''
     
-    # Show expanded chat if toggled
-    if st.session_state.chat_expanded:
-        with st.expander("🤖 AI Assistant", expanded=True):
-            # Import and show the existing chat widget
-            from components.chat import show_chat_widget
-            show_chat_widget(st.session_state.config["chat"])
+    # Create status indicator
+    status_indicators = {
+        "available": {"color": "#28a745", "pulse": ""},
+        "typing": {"color": "#007bff", "pulse": "animation: pulse 1.5s infinite;"},
+        "processing": {"color": "#ffc107", "pulse": "animation: pulse 1s infinite;"},
+        "error": {"color": "#dc3545", "pulse": "animation: pulse 2s infinite;"}
+    }
+    
+    status_info = status_indicators.get(chat_status, status_indicators["available"])
+    
+    # Status indicator dot HTML
+    status_dot = f'''
+    <span style="
+        position: absolute;
+        bottom: -2px;
+        left: -2px;
+        background: {status_info['color']};
+        border: 2px solid white;
+        border-radius: 50%;
+        width: 16px;
+        height: 16px;
+        {status_info['pulse']}
+    "></span>
+    '''
+    
+    # Floating chat button HTML
+    chat_button_html = f"""
+    <style>
+    @keyframes pulse {{
+        0% {{ transform: scale(1); opacity: 1; }}
+        50% {{ transform: scale(1.1); opacity: 0.7; }}
+        100% {{ transform: scale(1); opacity: 1; }}
+    }}
+    </style>
+    
+    <div id="floating-chat-container" style="
+        position: fixed;
+        bottom: 2rem;
+        right: 2rem;
+        z-index: 1000;
+    ">
+        <div style="
+            width: 60px;
+            height: 60px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
+            color: white;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            font-size: 24px;
+            cursor: pointer;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.15);
+            transition: all 0.3s ease;
+            position: relative;
+        " onmouseover="this.style.transform='translateY(-2px)'; this.style.boxShadow='0 6px 20px rgba(0,0,0,0.2)'"
+           onmouseout="this.style.transform='translateY(0px)'; this.style.boxShadow='0 4px 12px rgba(0,0,0,0.15)'"
+           onclick="document.getElementById('hidden-chat-btn').click()">
+            💬
+            {notification_badge}
+            {status_dot}
+        </div>
+    </div>
+    """
+    
+    # Display the floating chat icon
+    st.markdown(chat_button_html, unsafe_allow_html=True)
+    
+    # Hidden button for modal trigger
+    st.markdown("""
+    <style>
+    #hidden-chat-btn {
+        display: none !important;
+    }
+    </style>
+    """, unsafe_allow_html=True)
+    
+    # Create the modal
+    chat_modal = modal.Modal(
+        title="🤖 AI Assistant",
+        key="chat_modal",
+        max_width=600,
+        padding=20
+    )
+    
+    # Hidden button to trigger modal
+    if st.button("Open Chat", key="hidden_chat_btn", help="Open AI Assistant"):
+        # Clear notifications when chat is opened
+        st.session_state.chat_notifications = 0
+        chat_modal.open()
+    
+    # Modal content
+    if chat_modal.is_open():
+        with chat_modal.container():
+            # Get chat config with fallback
+            chat_config = st.session_state.get("config", {}).get("chat", {
+                "placeholder": "How can I help you today?",
+                "max_tokens": 1000,
+                "temperature": 0.7
+            })
+            
+            # Show the chat container
+            show_chat_container(chat_config)
+
+def show_floating_chat_window():
+    """Legacy function - now redirects to modal implementation."""
+    # This function is kept for backward compatibility
+    # but the actual implementation is now in show_persistent_chat
+    pass
 
 # Legacy functions for backward compatibility (simplified versions)
 def show_kpi_dashboard():
@@ -593,15 +724,54 @@ def show_homepage():
     # Get user role from session state
     user_role = st.session_state.get("user_role", "store_associate")
     
+    # Add chat modal button to page header
+    chat_notifications = st.session_state.get("chat_notifications", 0)
+    
+    # Create the modal first
+    chat_modal = modal.Modal(
+        title="🤖 AI Assistant",
+        key="homepage_chat_modal",
+        max_width=700,
+        padding=20
+    )
+    
+    # Page header with chat button
+    col1, col2, col3 = st.columns([6, 2, 2])
+    
+    with col1:
+        st.title("Store Dashboard")
+    
+    with col3:
+        # Chat button with notification badge
+        if chat_notifications > 0:
+            button_text = f"💬 AI Assistant ({chat_notifications})"
+        else:
+            button_text = "💬 AI Assistant"
+        
+        if st.button(button_text, key="header_chat_btn", type="primary", use_container_width=True):
+            st.session_state.chat_notifications = 0
+            chat_modal.open()
+    
+    # Modal content
+    if chat_modal.is_open():
+        with chat_modal.container():
+            # Get chat config with fallback
+            chat_config = st.session_state.get("config", {}).get("chat", {
+                "placeholder": "How can I help you today?",
+                "max_tokens": 1000,
+                "temperature": 0.7
+            })
+            
+            # Show the chat container
+            show_chat_container(chat_config)
+    
+    # Show appropriate homepage content based on user role
     if user_role == "store_manager":
         # Show new tab-based manager homepage
         show_manager_homepage()
     else:
         # Show new tab-based associate homepage
         show_associate_homepage()
-    
-    # Show persistent chat for all users
-    show_persistent_chat()
 
 def show_manager_homepage():
     """Display tab-based homepage content for store managers."""
@@ -643,6 +813,14 @@ def show_manager_homepage():
     # Show notifications if toggled
     if st.session_state.get("show_notifications", False):
         show_notifications_modal()
+    
+    # Demo section for chat notifications
+    st.markdown("---")
+    col1, col2, col3, col4 = st.columns(4)
+    with col4:
+        if st.button("📧 Simulate Chat Message", key="demo_chat_notification", help="Demo: Add a chat notification"):
+            simulate_chat_notification()
+            st.success("New chat message received!")
     
     st.markdown("---")
     

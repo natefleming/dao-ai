@@ -10,8 +10,7 @@ from .homepage import (
     show_inventory_summary,
     show_notifications_modal,
     show_manager_summary_cards,
-    show_associate_homepage,
-    show_persistent_chat
+    show_associate_homepage
 )
 
 __all__ = [
@@ -25,6 +24,5 @@ __all__ = [
     'show_inventory_summary', 
     'show_notifications_modal',
     'show_manager_summary_cards',
-    'show_associate_homepage',
-    'show_persistent_chat'
+    'show_associate_homepage'
 ] 
