@@ -20,7 +20,7 @@ resources:
       max_tokens: 8192
 
     reasoning_llm: &reasoning_llm
-      model_name: databricks-claude-3-7-sonnet
+      name: databricks-claude-3-7-sonnet
       temperature: 0.1
       max_tokens: 8192
 
@@ -37,20 +37,22 @@ resources:
       embedding_model_endpoint_name: databricks-gte-large-en
       endpoint_name: one-env-shared-endpoint-12
       endpoint_type: STANDARD
-      index_name: nfleming.retail_ai.products_index
-      source_table_name: nfleming.retail_ai.products
+      index_name: demos_genie.rcg_store_manager_gold.product_description_index
+      source_table_name: demos_genie.rcg_store_manager_gold.products
       primary_key: product_id
       doc_uri: ~
-      embedding_source_column: description
+      embedding_source_column: long_description
       columns:
-        - product_id
         - sku
         - upc
-        - brand_name
+        - product_id
         - product_name
+        - short_description
+        - long_description
+        - brand_name
         - merchandise_class
-        - class_cd
-        - description
+        - category_name
+        - subcategory_name
 
   genie_rooms:
     retail_genie_room: &retail_genie_room
@@ -121,8 +123,8 @@ guardrails:
 
 app:
   log_level: INFO
-  registered_model_name: demos_genie.rcg_store_manager_gold.retail_ai_agent    
-  endpoint_name: retail_ai_agent
+  registered_model_name: demos_genie.rcg_store_manager_gold.retail_multi_agent    
+  endpoint_name: retail_multi_agent
   tags:
     business: retail
     streaming: true
@@ -247,14 +249,16 @@ retrievers:
   products_retriever: &products_retriever
     vector_store: *products_vector_store
     columns:
-      - product_id
       - sku
       - upc
-      - brand_name
+      - product_id
       - product_name
+      - short_description
+      - long_description
+      - brand_name
       - merchandise_class
-      - class_cd
-      - description
+      - category_name
+      - subcategory_name
     search_parameters:
       num_results: 20
       filter: {}
