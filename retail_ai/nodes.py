@@ -191,12 +191,12 @@ def product_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools(
-            [
-                function for function in model_config.get("resources").get("functions")
-                if "find_product_by" in function
-            ]
-        )
+        # tools = create_uc_tools(
+        #     [
+        #         function for function in model_config.get("resources").get("functions")
+        #         if "find_product_by" in function
+        #     ]
+        # )
 
         tools += [
             find_product_details_by_description_tool(
@@ -259,12 +259,12 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools(
-            [
-                function for function in model_config.get("resources").get("functions")
-                if "find_inventory_by" in function
-            ]
-        )
+        # tools = create_uc_tools(
+        #     [
+        #         function for function in model_config.get("resources").get("functions")
+        #         if "find_inventory_by" in function
+        #     ]
+        # )
 
         tools += [
             find_product_details_by_description_tool(
@@ -329,12 +329,12 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         }
         system_prompt: str = prompt_template.format(**configurable)
 
-        tools = create_uc_tools(
-            [
-                function for function in model_config.get("resources").get("functions")
-                if "find_product_by" in function  
-            ]
-        )
+        # tools = create_uc_tools(
+        #     [
+        #         function for function in model_config.get("resources").get("functions")
+        #         if "find_product_by" in function  
+        #     ]
+        # )
 
         tools += [
             find_product_details_by_description_tool(

@@ -25,7 +25,7 @@ def show_chat_widget(config):
         st.session_state.messages = []
 
     # Load model configuration
-    model_config = config.get("model", {})
+    model_config = st.session_state.config.get("model", {})
     
     # Prepare model parameters
     optional_params = {
