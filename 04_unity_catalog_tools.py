@@ -1,45 +1,5 @@
 # Databricks notebook source
-from typing import Sequence
 
-pip_requirements: Sequence[str] = (
-  "langgraph",
-  "langchain",
-  "databricks-langchain",
-  "unitycatalog-langchain[databricks]",
-  "databricks-sdk",
-  "mlflow",
-  "python-dotenv",
-
-)
-
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
-%restart_python
-
-# COMMAND ----------
-
-from typing import Sequence
-from importlib.metadata import version
-
-pip_requirements: Sequence[str] = (
-  f"langgraph=={version('langgraph')}",
-  f"langchain=={version('langchain')}",
-  f"databricks-langchain=={version('databricks-langchain')}",
-  f"databricks-sdk=={version('databricks-sdk')}",
-  f"mlflow=={version('mlflow')}",
-  f"python-dotenv=={version('python-dotenv')}",
-  f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
-)
-
-print("\n".join(pip_requirements))
-
-# COMMAND ----------
-
-# MAGIC %load_ext autoreload
-# MAGIC %autoreload 2
-
-# COMMAND ----------
 
 from dotenv import find_dotenv, load_dotenv
 

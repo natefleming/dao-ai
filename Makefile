@@ -22,7 +22,7 @@ FIND := $(shell which find)
 RM := rm -rf
 CD := cd
 
-.PHONY: all clean distclean dist format help 
+.PHONY: all clean distclean dist format help docs-install docs-serve docs-build docs-deploy docs-clean docs-help
 
 all: dist
 
@@ -71,4 +71,32 @@ help:
 	$(info       format       - format source code)
 	$(info       depends      - installs library dependencies)
 	@true
+
+docs-install:
+	@echo "Installing documentation dependencies..."
+	pip install -r requirements-docs.txt
+
+docs-serve:
+	@echo "Serving documentation locally..."
+	mkdocs serve
+
+docs-build:
+	@echo "Building documentation..."
+	mkdocs build
+
+docs-deploy:
+	@echo "Deploying documentation to GitHub Pages..."
+	mkdocs gh-deploy
+
+docs-clean:
+	@echo "Cleaning documentation build artifacts..."
+	rm -rf site/
+
+docs-help:
+	@echo "Documentation commands:"
+	@echo "  docs-install  - Install documentation dependencies"
+	@echo "  docs-serve    - Serve documentation locally (http://localhost:8000)"
+	@echo "  docs-build    - Build documentation for production"
+	@echo "  docs-deploy   - Deploy to GitHub Pages"
+	@echo "  docs-clean    - Clean build artifacts"
 

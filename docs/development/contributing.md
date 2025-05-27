@@ -1,8 +1,8 @@
-# Contributing to Retail AI Agent
+# Contributing to Retail AI
 
-This guide helps developers understand the tools architecture and contribute effectively to the Retail AI Agent project.
+This guide helps developers understand the tools architecture and contribute effectively to the Retail AI project.
 
-## Tools Architecture & Patterns
+## 🏗️ Tools Architecture & Patterns
 
 ### Tool Design Philosophy
 
@@ -60,11 +60,6 @@ def create_find_product_by_sku_tool(warehouse_id: str):
 - Poll for completion on long-running queries
 - Return structured data from Unity Catalog functions
 
-**Examples**:
-- `create_find_product_by_sku_tool()`: Look up products by SKU
-- `create_find_inventory_by_sku_tool()`: Check inventory levels
-- `create_find_store_inventory_by_sku_tool()`: Store-specific queries
-
 #### 3. Vector Search Tools
 
 These tools perform semantic search using Databricks Vector Search:
@@ -100,11 +95,6 @@ def create_uc_tools(function_names: str | Sequence[str]) -> Sequence[BaseTool]:
     return toolkit.tools
 ```
 
-**Pattern**:
-- Use `UCFunctionToolkit` for automatic wrapping
-- Support single function or list of functions
-- Functions become callable tools with proper schemas
-
 #### 5. External Service Tools
 
 These tools integrate with external services:
@@ -118,10 +108,6 @@ def create_genie_tool(space_id: Optional[str] = None):
         return genie.ask_question(question)
     return genie_tool
 ```
-
-**Examples**:
-- `create_genie_tool()`: Natural language to SQL via Databricks Genie
-- `search_tool()`: Web search using DuckDuckGo
 
 ### Data Models
 
@@ -140,13 +126,7 @@ class ProductInfo(BaseModel):
     }
 ```
 
-**Key Features**:
-- Strict validation with `"extra": "forbid"`
-- Detailed field descriptions for LLM understanding
-- Nested models for complex data structures
-- JSON schema generation for API documentation
-
-## Development Workflow
+## 🚀 Development Workflow
 
 ### Project Structure
 
@@ -170,22 +150,11 @@ notebooks/
 
 The development workflow is organized into focused notebooks:
 
-1. **`05_agent_as_code_driver.py`**: 
-   - Model development and logging
-   - Automatic model registration
-   - Direct model testing
+1. **`05_agent_as_code_driver.py`**: Model development, logging, and registration
+2. **`06_evaluate_agent.py`**: Formal MLflow evaluation and performance metrics
+3. **`07_deploy_agent.py`**: Model alias management, endpoint deployment, and permissions
 
-2. **`06_evaluate_agent.py`**: 
-   - Formal MLflow evaluation
-   - Evaluation data loading
-   - Performance metrics
-
-3. **`07_deploy_agent.py`**: 
-   - Model alias management (Champion)
-   - Endpoint deployment
-   - Permissions configuration
-
-## Adding New Tools
+## 🔧 Adding New Tools
 
 To add a new tool, follow these patterns:
 
@@ -257,7 +226,7 @@ your_tool = create_your_tool(config_params)
 tools = [existing_tools..., your_tool]
 ```
 
-## Testing Tools
+## 🧪 Testing
 
 ### Unit Testing
 
@@ -279,7 +248,7 @@ example_input = {"messages": [{"role": "user", "content": "test your tool"}]}
 result = app.invoke(example_input)
 ```
 
-## Best Practices
+## 📋 Best Practices
 
 ### 1. Error Handling
 
@@ -337,179 +306,7 @@ def create_configurable_tool(model_config: ModelConfig):
 - Document return value structure
 - Add type hints for all parameters
 
-## Code Quality
-
-### Pre-commit Hooks
-
-```bash
-# Install pre-commit
-pip install pre-commit
-pre-commit install
-
-# Run checks
-pre-commit run --all-files
-```
-
-### Type Checking
-
-```bash
-# Run mypy for type checking
-mypy retail_ai/
-```
-
-### Testing
-
-```bash
-# Run tests
-pytest tests/
-```
-
-## Tool Implementation Examples
-
-### Example 1: Simple LLM Tool
-
-```python
-def create_sentiment_analysis_tool(llm: LanguageModelLike) -> Callable:
-    """Create a tool that analyzes customer sentiment."""
-    
-    class SentimentResult(BaseModel):
-        sentiment: Literal["positive", "negative", "neutral"] = Field(
-            description="Overall sentiment of the text"
-        )
-        confidence: float = Field(
-            description="Confidence score between 0 and 1"
-        )
-        reasoning: str = Field(
-            description="Brief explanation of the sentiment analysis"
-        )
-        
-        model_config = {
-            "extra": "forbid",
-            "json_schema_extra": {"additionalProperties": False}
-        }
-    
-    @tool
-    def sentiment_analysis(text: str) -> SentimentResult:
-        """
-        Analyze the sentiment of customer feedback or reviews.
-        
-        Args:
-            text: The text to analyze for sentiment
-            
-        Returns:
-            SentimentResult with sentiment, confidence, and reasoning
-        """
-        logger.debug(f"sentiment_analysis: text={text[:100]}...")
-        
-        prompt = f"Analyze the sentiment of this text: {text}"
-        llm_with_tools = llm.with_structured_output(SentimentResult)
-        result = llm_with_tools.invoke(prompt)
-        
-        logger.debug(f"sentiment_analysis: result={result}")
-        return result
-    
-    return sentiment_analysis
-```
-
-### Example 2: Database Query Tool
-
-```python
-def create_price_lookup_tool(warehouse_id: str) -> Callable:
-    """Create a tool that looks up current product prices."""
-    
-    @tool
-    def price_lookup(product_ids: list[str]) -> list[dict]:
-        """
-        Look up current prices for one or more products.
-        
-        Args:
-            product_ids: List of product IDs to look up prices for
-            
-        Returns:
-            List of dictionaries with product_id, current_price, and currency
-        """
-        logger.debug(f"price_lookup: product_ids={product_ids}")
-        
-        w = WorkspaceClient()
-        
-        # Format product IDs for SQL
-        ids_str = ",".join([f"'{pid}'" for pid in product_ids])
-        statement = f"""
-            SELECT product_id, current_price, currency 
-            FROM catalog.schema.product_prices 
-            WHERE product_id IN ({ids_str})
-        """
-        
-        logger.debug(f"price_lookup: executing SQL: {statement}")
-        
-        response = w.statement_execution.execute_statement(
-            statement=statement, 
-            warehouse_id=warehouse_id
-        )
-        
-        # Poll for completion
-        while response.status.state in [StatementState.PENDING, StatementState.RUNNING]:
-            response = w.statement_execution.get_statement(response.statement_id)
-        
-        result = response.result.data_array if response.result else []
-        logger.debug(f"price_lookup: result={result}")
-        
-        return result
-    
-    return price_lookup
-```
-
-### Example 3: Vector Search Tool
-
-```python
-def create_similar_products_tool(endpoint_name: str, index_name: str) -> Callable:
-    """Create a tool that finds similar products using vector search."""
-    
-    @tool
-    @mlflow.trace(span_type="RETRIEVER", name="similar_products_search")
-    def find_similar_products(product_description: str, limit: int = 5) -> list[dict]:
-        """
-        Find products similar to the given description.
-        
-        Args:
-            product_description: Description of the product to find similar items for
-            limit: Maximum number of similar products to return
-            
-        Returns:
-            List of similar products with metadata
-        """
-        logger.debug(f"find_similar_products: description={product_description}")
-        
-        vector_search = DatabricksVectorSearch(
-            endpoint=endpoint_name,
-            index_name=index_name,
-            columns=["product_id", "name", "description", "category", "price"]
-        )
-        
-        documents = vector_search.similarity_search(
-            query=product_description, 
-            k=limit
-        )
-        
-        # Convert documents to structured format
-        results = []
-        for doc in documents:
-            results.append({
-                "product_id": doc.metadata.get("product_id"),
-                "name": doc.metadata.get("name"),
-                "description": doc.page_content,
-                "category": doc.metadata.get("category"),
-                "price": doc.metadata.get("price"),
-                "similarity_score": doc.metadata.get("score", 0.0)
-            })
-        
-        logger.debug(f"find_similar_products: found {len(results)} similar products")
-        return results
-    
-    return find_similar_products
-```
-
-## Troubleshooting
+## 🔍 Troubleshooting
 
 ### Common Issues
 
@@ -534,14 +331,7 @@ Use MLflow tracing to debug tool execution:
 mlflow.set_tracking_uri("databricks")
 ```
 
-### Performance Tips
-
-1. **Batch Operations**: Group multiple queries when possible
-2. **Caching**: Cache expensive operations using `@lru_cache`
-3. **Async Operations**: Use async patterns for I/O-bound operations
-4. **Resource Management**: Properly close database connections and clients
-
-## Contributing Guidelines
+## 🤝 Contributing Guidelines
 
 ### Pull Request Process
 
@@ -568,4 +358,4 @@ mlflow.set_tracking_uri("databricks")
 - **Documentation**: Check existing docs and code examples
 - **Community**: Join the project community channels
 
-This contributing guide provides the foundation for building robust, maintainable tools that integrate seamlessly with the Retail AI Agent architecture. 
+This contributing guide provides the foundation for building robust, maintainable tools that integrate seamlessly with the Retail AI architecture. 
