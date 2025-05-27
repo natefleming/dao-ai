@@ -1,0 +1,26 @@
+repos:
+  - repo: local
+    hooks:
+      - id: export-requirements
+        name: Export requirements.txt
+        entry: poetry export -f requirements.txt --output requirements.txt --without-hashes --only=main
+        language: system
+        files: pyproject.toml
+        pass_filenames: false
+        
+      - id: export-requirements-dev
+        name: Export requirements-dev.txt
+        entry: poetry export -f requirements.txt --output requirements-dev.txt --without-hashes
+        language: system
+        files: pyproject.toml
+        pass_filenames: false
+
+  - repo: https://github.com/psf/black
+    rev: 24.0.0
+    hooks:
+      - id: black
+        
+  - repo: https://github.com/pycqa/flake8
+    rev: 7.0.0
+    hooks:
+      - id: flake8 

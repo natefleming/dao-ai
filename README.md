@@ -8,10 +8,12 @@ This project implements a LangGraph-based conversational AI agent for retail ope
 
 - Answer questions about product inventory
 - Provide product recommendations based on customer preferences
-- Look up specific product details
+- Look up specific product details using SKU/UPC codes
+- Compare products across features and specifications
 - Answer general retail-related questions
+- Provide DIY project guidance and tutorials
 
-The system uses Databricks Vector Search, Unity Catalog, and LLMs to provide accurate, context-aware responses.
+The system uses Databricks Vector Search, Unity Catalog, Genie, and LLMs to provide accurate, context-aware responses.
 
 ## Architecture
 
@@ -62,6 +64,46 @@ The architecture follows a graph-based state machine pattern:
 
 ![Agent Architecture](docs/architecture.png)
 
+## Development Workflow
+
+### Project Structure
+
+```
+retail_ai/
+├── agents.py          # Agent implementations
+├── catalog.py         # Unity Catalog integration
+├── graph.py           # LangGraph workflow definition
+├── models.py          # MLflow model integration
+├── nodes.py           # Agent node definitions
+├── tools.py           # Tool definitions
+└── vector_search.py   # Vector search utilities
+
+notebooks/
+├── 05_agent_as_code_driver.py    # Model logging & registration
+├── 06_evaluate_agent.py          # Model evaluation
+└── 07_deploy_agent.py            # Model deployment & permissions
+```
+
+### Notebook Workflow
+
+The development workflow is organized into focused notebooks:
+
+1. **`05_agent_as_code_driver.py`**: Model development, logging, and registration
+2. **`06_evaluate_agent.py`**: Formal MLflow evaluation and performance metrics
+3. **`07_deploy_agent.py`**: Model alias management, endpoint deployment, and permissions
+
+## Contributing
+
+For detailed information about the tools architecture, development patterns, and how to contribute new tools, see [CONTRIBUTING.md](CONTRIBUTING.md).
+
+### Quick Start for Contributors
+
+1. **Understand the Architecture**: Review the tools patterns in `CONTRIBUTING.md`
+2. **Set up Development Environment**: Follow the setup instructions below
+3. **Add New Tools**: Use the factory patterns and examples in the contributing guide
+4. **Test Your Changes**: Use the evaluation notebook for integration testing
+5. **Submit Pull Request**: Follow the code review checklist
+
 ## Prerequisites
 
 - Python 3.12+
@@ -82,11 +124,15 @@ The architecture follows a graph-based state machine pattern:
 ```bash
 # Create and activate a Python virtual environment 
 uv venv
-source  .venv/bin/activate  # On Windows: venv\Scripts\activate
+source .venv/bin/activate  # On Windows: .venv\Scripts\activate
 
 # Install dependencies
 uv sync
 ```
+
+3. Configure your environment:
+   - Copy `model_config.yaml.template` to `model_config.yaml`
+   - Update configuration with your Databricks workspace details
 
 ## Configuration
 
@@ -98,55 +144,18 @@ Configuration is managed through `model_config.yaml`, which includes:
 - Genie space ID
 - Application deployment details
 
-## Notebooks
-
-The project includes several notebooks for setup and execution:
-
-1. `01_ingest-and-transform.py`: Ingests product data and prepares it for vector search
-2. `02_provision-vector-search.py`: Creates vector search endpoint and index
-3. `03_generate_evaluation_data.py`: Prepares evaluation data for the agent
-4. `04_unity_catalog_tools.py`: Creates Unity Catalog functions
-5. `05_agent_as_code_driver.py`: Deploys the agent as a model
-
-## Development
-
-### Project Structure
-
-- `retail_ai/`: Core package containing agent implementation
-  - `agents.py`: Agent implementation 
-  - `catalog.py`: Unity Catalog integration
-  - `graph.py`: LangGraph workflow definition
-  - `models.py`: MLflow model integration
-  - `nodes.py`: Agent node definitions
-  - `tools.py`: Tool definitions for the agent
-  - `vector_search.py`: Vector search utilities
-
-### Building the Package
-
-```bash
-make dist
-```
-
-## Deployment
-
-The agent can be deployed as a model endpoint using MLflow:
-
-```python
-# Register the model
-mlflow.register_model(
-    name="retail_ai_agent",
-    model_uri=logged_agent_info.model_uri
-)
-
-# Deploy as an endpoint
-agents.deploy(
-  model_name="retail_ai_agent", 
-  model_version=latest_version,
-  endpoint_name="retail_ai_agent"
-)
-```
-
 ## Usage
+
+### Development
+
+Run the notebooks in order:
+
+1. **Data Setup**: `01_ingest-and-transform.py`, `02_provision-vector-search.py`
+2. **Model Development**: `05_agent_as_code_driver.py`
+3. **Evaluation**: `06_evaluate_agent.py`
+4. **Deployment**: `07_deploy_agent.py`
+
+### Production
 
 Once deployed, the agent can be called with:
 
@@ -168,6 +177,31 @@ response = client.predict(
     }
   }
 )
+```
+
+## Troubleshooting
+
+### Common Issues
+
+1. **Tool Not Found**: Ensure tool is registered in the agent configuration
+2. **Type Errors**: Check Pydantic model definitions and field types
+3. **Database Errors**: Verify Unity Catalog permissions and function names
+4. **Vector Search Issues**: Check endpoint status and index configuration
+
+### Debugging
+
+Enable debug logging:
+
+```python
+import logging
+logging.getLogger("retail_ai").setLevel(logging.DEBUG)
+```
+
+Use MLflow tracing to debug tool execution:
+
+```python
+# View traces in MLflow UI
+mlflow.set_tracking_uri("databricks")
 ```
 
 ## License

@@ -266,6 +266,7 @@ def inventory_node(model_config: ModelConfig) -> AgentCallable:
         #     ]
         # )
 
+        tools = []
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,
@@ -336,6 +337,7 @@ def comparison_node(model_config: ModelConfig) -> AgentCallable:
         #     ]
         # )
 
+        tools = []
         tools += [
             find_product_details_by_description_tool(
                 endpoint_name=endpoint_name,

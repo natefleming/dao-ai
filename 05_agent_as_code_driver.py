@@ -1,65 +1,5 @@
 # Databricks notebook source
-from typing import Sequence
 
-pip_requirements: Sequence[str] = (
-  "langgraph",
-  "langchain",
-  "databricks-langchain",
-  "unitycatalog-langchain[databricks]",
-  "unitycatalog-ai[databricks]",
-  "langgraph-checkpoint-postgres",
-  "duckduckgo-search",
-  "databricks-agents",
-  "psycopg[binary,pool]", 
-  "databricks-sdk",
-  "langgraph-reflection",
-  "openevals",
-  "mlflow",
-  "pydantic",
-  "python-dotenv",
-  "uv",
-  "grandalf",
-  "loguru",
-)
-
-pip_requirements: str = " ".join(pip_requirements)
-
-%pip install --quiet --upgrade {pip_requirements}
-%restart_python
-
-# COMMAND ----------
-
-from typing import Sequence
-from importlib.metadata import version
-from pkg_resources import get_distribution
-
-
-pip_requirements: Sequence[str] = [
-    f"langgraph=={version('langgraph')}",
-    f"langchain=={version('langchain')}",
-    f"databricks-langchain=={version('databricks-langchain')}",
-    f"unitycatalog-langchain[databricks]=={version('unitycatalog-langchain')}",
-    f"unitycatalog-ai[databricks]=={version('unitycatalog-ai')}",
-    f"langgraph-checkpoint-postgres=={version('langgraph-checkpoint-postgres')}",
-    f"duckduckgo-search=={version('duckduckgo-search')}",
-    f"databricks-sdk=={version('databricks-sdk')}",
-    f"langgraph-reflection=={version('langgraph-reflection')}",
-    f"openevals=={version('openevals')}",
-    f"mlflow=={version('mlflow')}",
-    f"psycopg[binary,pool]=={version('psycopg')}",
-    f"databricks-agents=={version('databricks-agents')}",
-    f"pydantic=={version('pydantic')}",
-    f"loguru=={version('loguru')}",
-    f"databricks-connect=={get_distribution('databricks-connect').version}"
-]
-print("\n".join(pip_requirements))
-
-# COMMAND ----------
-
-# MAGIC %load_ext autoreload
-# MAGIC %autoreload 2
-
-# COMMAND ----------
 
 # MAGIC %%writefile agent_as_code.py
 # MAGIC
@@ -96,6 +36,7 @@ print("\n".join(pip_requirements))
 
 from agent_as_code import app
 from retail_ai.models import display_graph
+import dbutils
 
 display_graph(app)
 
@@ -209,103 +150,31 @@ auth_policy: AuthPolicy = AuthPolicy(
 
 with mlflow.start_run(run_name="agent"):
     mlflow.set_tag("type", "agent")
+    mlflow.set_registry_uri("databricks-uc")
+    
     logged_agent_info: ModelInfo = mlflow.pyfunc.log_model(
         python_model="agent_as_code.py",
         code_paths=["retail_ai"],
         model_config=config.to_dict(),
         artifact_path="agent",
-        pip_requirements=pip_requirements,
+        pip_requirements="requirements.txt",
         resources=resources,
+        registered_model_name=config.get("app").get("registered_model_name")
         #auth_policy=auth_policy,
     )
 
 # COMMAND ----------
 
-import mlflow
-from mlflow.entities.model_registry.model_version import ModelVersion
-
-from agent_as_code import config
-
-
-mlflow.set_registry_uri("databricks-uc")
-
-registered_model_name: str = config.get("app").get("registered_model_name")
-
-model_version: ModelVersion = mlflow.register_model(
-    name=registered_model_name, 
-    model_uri=logged_agent_info.model_uri
-)
+# Model registration is now handled automatically in the log_model call above
+# The logged_agent_info.registered_model_version contains the registered model version
 
 # COMMAND ----------
 
-from mlflow import MlflowClient
-from mlflow.entities.model_registry.model_version import ModelVersion
-
-client: MlflowClient = MlflowClient()
-
-client.set_registered_model_alias(
-    name=registered_model_name, alias="Champion", version=model_version.version
-)
-champion_model: ModelVersion = client.get_model_version_by_alias(
-    registered_model_name, "Champion"
-)
-print(champion_model)
+# Deployment is now handled in 07_deploy_agent.py
 
 # COMMAND ----------
 
-from databricks import agents
-from retail_ai.models import get_latest_model_version
-from agent_as_code import config
-
-
-registered_model_name: str = config.get("app").get("registered_model_name")
-endpoint_name: str = config.get("app").get("endpoint_name")
-tags: dict[str, str] = config.get("app").get("tags")
-latest_version: int = get_latest_model_version(registered_model_name)
-
-agents.deploy(
-    model_name=registered_model_name,
-    model_version=latest_version,
-    scale_to_zero=True,
-    environment_vars={},
-    workload_size="Small",
-    endpoint_name=endpoint_name,
-    tags=tags,
-)
-
-# COMMAND ----------
-
-import mlflow
-from mlflow.models.model import ModelInfo
-from mlflow.entities.model_registry.model_version import ModelVersion
-from mlflow.models.evaluation import EvaluationResult
-
-import pandas as pd
-
-from agent_as_code import config
-
-
-model_info: mlflow.models.model.ModelInfo
-evaluation_result: EvaluationResult
-
-evaluation_table_name: str = config.get("evaluation").get("table_name")
-
-evaluation_pdf: pd.DataFrame = spark.table(evaluation_table_name).toPandas()
-
-global_guidelines = {
-
-}
-
-model_uri: str = f"models:/{registered_model_name}@Champion"
-
-with mlflow.start_run():
-    mlflow.set_tag("type", "evaluation")
-    eval_results = mlflow.evaluate(
-        data=evaluation_pdf,
-        model=model_uri,
-        model_type="databricks-agent",
-        evaluator_config={"databricks-agent": {"global_guidelines": global_guidelines}},
-    )
+# Evaluation is now handled in 06_evaluate_agent.py
 
 # COMMAND ----------
 
@@ -322,26 +191,7 @@ mlflow.models.predict(
 
 # COMMAND ----------
 
-from typing import Any, Sequence
-
-from databricks.agents import set_permissions, PermissionLevel
-
-from agent_as_code import config
-
-registered_model_name: str = config.get("app").get("registered_model_name")
-permissions: Sequence[dict[str, Any]] = config.get("app").get("permissions") 
-
-for permission in permissions:
-    principals: Sequence[str] = permission.get("principals")
-    entitlements: Sequence[str] = permission.get("entitlements")
-
-    for entitlement in entitlements:
-        set_permissions(
-            model_name=registered_model_name,
-            users=principals,
-            permission_level=PermissionLevel[entitlement]
-        )
-
+# Permissions are now handled in 07_deploy_agent.py
 
 # COMMAND ----------
 
