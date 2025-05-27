@@ -54,6 +54,39 @@ resources:
         - category_name
         - subcategory_name
 
+    store_vector_store: &store_vector_store
+      embedding_model_endpoint_name: databricks-gte-large-en
+      endpoint_name: one-env-shared-endpoint-12
+      endpoint_type: STANDARD
+      index_name: demos_genie.rcg_store_manager_gold.store_details_indexed
+      source_table_name: demos_genie.rcg_store_manager_gold.dim_stores2
+      primary_key: store_id
+      doc_uri: ~
+      embedding_source_column: store_details_text
+      columns:
+        - store_id
+        - store_name
+        - store_address
+        - store_city
+        - store_state
+        - store_zipcode
+        - store_country
+        - store_phone
+        - store_email
+        - store_manager_id
+        - opening_date
+        - store_area_sqft
+        - is_open_24_hours
+        - latitude
+        - longitude
+        - region_id
+        - store_details_text
+
+    # List of all vector stores to provision
+    indexes_to_provision:
+      - *products_vector_store
+      - *store_vector_store
+
   genie_rooms:
     retail_genie_room: &retail_genie_room
       name: "Retail AI Genie Room"
@@ -261,6 +294,31 @@ retrievers:
       - subcategory_name
     search_parameters:
       num_results: 20
+      filter: {}
+      query_type: ANN
+
+  stores_retriever: &stores_retriever
+    vector_store: *store_vector_store
+    columns:
+      - store_id
+      - store_name
+      - store_address
+      - store_city
+      - store_state
+      - store_zipcode
+      - store_country
+      - store_phone
+      - store_email
+      - store_manager_id
+      - opening_date
+      - store_area_sqft
+      - is_open_24_hours
+      - latitude
+      - longitude
+      - region_id
+      - store_details_text
+    search_parameters:
+      num_results: 10
       filter: {}
       query_type: ANN
 

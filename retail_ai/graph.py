@@ -3,17 +3,17 @@ from langgraph.graph.state import CompiledStateGraph
 from mlflow.models import ModelConfig
 
 from retail_ai.messages import has_image
-from retail_ai.nodes import (
-    comparison_node,
-    diy_node,
-    general_node,
-    inventory_node,
-    message_validation_node,
-    orders_node,
-    process_images_node,
-    product_node,
-    recommendation_node,
-    router_node,
+from retail_ai.agents import (
+    comparison_agent,
+    diy_agent,
+    general_agent,
+    inventory_agent,
+    message_validation_agent,
+    orders_agent,
+    process_images_agent,
+    product_agent,
+    recommendation_agent,
+    router_agent,
 )
 from retail_ai.state import AgentConfig, AgentState
 
@@ -30,17 +30,17 @@ def create_retail_ai_graph(model_config: ModelConfig) -> CompiledStateGraph:
     workflow: StateGraph = StateGraph(AgentState, config_schema=AgentConfig)
 
     workflow.add_node(
-        "message_validation", message_validation_node(model_config=model_config)
+        "message_validation", message_validation_agent(model_config=model_config)
     )
-    workflow.add_node("process_images", process_images_node(model_config=model_config))
-    workflow.add_node("router", router_node(model_config=model_config))
-    workflow.add_node("general", general_node(model_config=model_config))
-    workflow.add_node("recommendation", recommendation_node(model_config=model_config))
-    workflow.add_node("inventory", inventory_node(model_config=model_config))
-    workflow.add_node("product", product_node(model_config=model_config))
-    workflow.add_node("orders", orders_node(model_config=model_config))
-    workflow.add_node("diy", diy_node(model_config=model_config))
-    workflow.add_node("comparison", comparison_node(model_config=model_config))
+    workflow.add_node("process_images", process_images_agent(model_config=model_config))
+    workflow.add_node("router", router_agent(model_config=model_config))
+    workflow.add_node("general", general_agent(model_config=model_config))
+    workflow.add_node("recommendation", recommendation_agent(model_config=model_config))
+    workflow.add_node("inventory", inventory_agent(model_config=model_config))
+    workflow.add_node("product", product_agent(model_config=model_config))
+    workflow.add_node("orders", orders_agent(model_config=model_config))
+    workflow.add_node("diy", diy_agent(model_config=model_config))
+    workflow.add_node("comparison", comparison_agent(model_config=model_config))
 
     workflow.add_conditional_edges(
         "message_validation",

@@ -181,7 +181,7 @@ print(results)
 
 Now that you have the system running:
 
-1. **Explore the Tools**: Check out the [Tools Reference](../tools/overview.md) to understand all available capabilities
+1. **Explore the Tools**: Check out the [Tools Reference](../agents-and-tools/overview.md) to understand all available capabilities
 2. **Try Examples**: Run through the [Examples](../examples/basic-usage.md) to see common use cases
 3. **Customize**: Follow the [Developer Guide](../development/setup.md) to add your own tools
 4. **Deploy**: Use the [Deployment Guide](../development/deployment.md) to deploy to production

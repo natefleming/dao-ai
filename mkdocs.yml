@@ -79,9 +79,18 @@ nav:
     - MkDocs Guide: getting-started/mkdocs-quickstart.md
   - Architecture:
     - Overview: architecture/overview.md
-  - Tools:
-    - Overview: tools/overview.md
-    - Unity Catalog Functions: tools/unity-catalog-functions.md
+  - Agents & Tools:
+    - Overview: agents-and-tools/overview.md
+    - AI Agents Implementation: agents-and-tools/ai-agents.md
+    - References:
+      - Agent Reference: agents-and-tools/references/agent-reference.md
+      - Tools Reference: agents-and-tools/references/tools-reference.md
+    - Agent Development:
+      - Quickstart Guide: agents-and-tools/agents/agent-quickstart.md
+      - Development Patterns: agents-and-tools/agents/agent-development-patterns.md
+      - Performance: agents-and-tools/agents/agent-performance.md
+      - Best Practices: agents-and-tools/agents/agent-best-practices.md
+      - Agent Troubleshooting: agents-and-tools/agent-troubleshooting.md
   - Applications:
     - Streamlit App: applications/streamlit-app.md
   - Deployment:

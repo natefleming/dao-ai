@@ -93,5 +93,5 @@ Compare products, analyze features, and provide detailed product information.
 
 - [Quick Start Guide](getting-started/quick-start.md) - Get up and running quickly
 - [Architecture Overview](architecture/overview.md) - Understand the system design
-- [Tools Reference](tools/overview.md) - Explore available tools and functions
+- [Tools Reference](agents-and-tools/overview.md) - Explore available tools and functions
 - [Developer Guide](development/setup.md) - Start contributing to the project 

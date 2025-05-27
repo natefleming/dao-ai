@@ -78,7 +78,7 @@ def hello_world():
 
 ## Next Steps
 
-- [Tools Overview](../tools/overview.md)
+- [Tools Overview](../agents-and-tools/overview.md)
 - [Quick Start](../getting-started/quick-start.md)
 ```
 
@@ -259,7 +259,7 @@ docs/
 [Quick Start Guide](../getting-started/quick-start.md)
 
 # Link to a section
-[Unity Catalog Functions](../tools/overview.md#unity-catalog-functions)
+[Unity Catalog Functions](../agents-and-tools/overview.md#unity-catalog-functions)
 
 # Link to external site
 [MkDocs Documentation](https://www.mkdocs.org/)
