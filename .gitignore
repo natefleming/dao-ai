@@ -17,6 +17,7 @@ ipython_config.py
 .DS_Store
 .AppleDouble
 .LSOverride
+.todos.md
 
 # Icon must end with two \r
 Icon
