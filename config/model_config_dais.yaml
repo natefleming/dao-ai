@@ -1400,21 +1400,28 @@ datasets:
     data: ../data/retail/employee_tasks_data.sql
     format: sql
 
-  # Additional product categories
   - table:
       schema: *dais_schema
-      name: grill_products
-    ddl: ../data/retail/grill_products.sql
-    data: ../data/retail/grill_products.sql
+      name: employee_performance
+    ddl: ../data/retail/employee_performance.sql
+    data: ../data/retail/employee_performance_data.sql
     format: sql
 
+  # Additional product categories
+  # - table:
+  #     schema: *dais_schema
+  #     name: grill_products
+  #   ddl: ../data/retail/grill_products.sql
+  #   data: ../data/retail/grill_products.sql
+  #   format: sql
+
   # Complete table definitions (includes all schemas)
-  - table:
-      schema: *dais_schema
-      name: all_tables
-    ddl: ../data/retail/tables.sql
-    data: ../data/retail/tables.sql
-    format: sql
+  # - table:
+  #     schema: *dais_schema
+  #     name: all_tables
+  #   ddl: ../data/retail/tables.sql
+  #   data: ../data/retail/tables.sql
+  #   format: sql
 
   # Demo and presentation materials
   # - table:

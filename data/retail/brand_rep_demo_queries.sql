@@ -143,7 +143,7 @@ SELECT
     p.product_name,
     cf.feedback_category,
     COUNT(*) as feedback_count,
-    STRING_AGG(cf.review_text, '; ') as sample_reviews
+    ARRAY_JOIN(COLLECT_SET(cf.review_text), '^ ') as sample_reviews
 FROM customer_feedback cf
 JOIN product_performance p ON cf.product_id = p.product_id
 WHERE p.sku IN ('NIKE-AMSC-001', 'NIKE-AM90-001') AND cf.store_id = 101
@@ -169,7 +169,7 @@ SELECT
     si.outcome,
     COUNT(*) as interaction_count,
     ROUND(AVG(si.duration_minutes), 1) as avg_interaction_time,
-    STRING_AGG(DISTINCT si.resolution_strategy, '; ') as successful_strategies
+    ARRAY_JOIN(COLLECT_SET(DISTINCT si.resolution_strategy), '^ ') as successful_strategies
 FROM sales_interactions si
 WHERE si.brand = 'Nike' AND si.store_id = 101
 GROUP BY si.product_discussed, si.outcome

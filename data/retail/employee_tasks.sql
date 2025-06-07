@@ -75,7 +75,8 @@ CREATE TABLE IF NOT EXISTS employee_tasks (
 USING DELTA
 TBLPROPERTIES (
     'delta.autoOptimize.optimizeWrite' = 'true',
-    'delta.autoOptimize.autoCompact' = 'true'
+    'delta.autoOptimize.autoCompact' = 'true',
+    'delta.feature.allowColumnDefaults' = 'supported'
 );
 
 -- Create views for common queries used by the store companion app

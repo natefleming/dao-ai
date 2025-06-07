@@ -1,7 +1,5 @@
 USE IDENTIFIER(:database);
 
--- drop table if exists dim_stores2;
--- Stores table schema for BrickMart retail chain
 CREATE OR REPLACE TABLE dim_stores (
     store_id INT COMMENT 'Unique identifier for each store location (e.g., 1, 2)',
     store_name STRING COMMENT 'Display name of the store location (e.g., Downtown, Uptown)',

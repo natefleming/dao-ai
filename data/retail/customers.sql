@@ -102,7 +102,7 @@ SELECT
     c.total_lifetime_spend,
     c.last_visit_date
 FROM customers c
-LEFT JOIN dim_stores2 s ON c.preferred_store_id = s.store_id
+LEFT JOIN dim_stores s ON c.preferred_store_id = s.store_id
 LEFT JOIN employee_performance e ON c.preferred_stylist_id = e.employee_id
 WHERE c.next_appointment_date IS NOT NULL
     AND c.next_appointment_date >= CURRENT_TIMESTAMP()
@@ -147,7 +147,7 @@ SELECT
     -- Calculate hours until appointment
     ROUND((UNIX_TIMESTAMP(c.next_appointment_date) - UNIX_TIMESTAMP(CURRENT_TIMESTAMP())) / 3600, 1) as hours_until_appointment
 FROM customers c
-LEFT JOIN dim_stores2 s ON c.preferred_store_id = s.store_id
+LEFT JOIN dim_stores s ON c.preferred_store_id = s.store_id
 LEFT JOIN employee_performance e ON c.preferred_stylist_id = e.employee_id
 WHERE c.customer_status = 'active'
 ORDER BY c.next_appointment_date ASC; 

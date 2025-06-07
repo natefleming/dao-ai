@@ -14,7 +14,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config_dais.yaml")
 config_path: str = dbutils.widgets.get("config-path")
 print(config_path)
 
@@ -118,15 +118,10 @@ for dataset in datasets:
       spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
 
   if format == "sql":
+      data_path = Path(dataset.data)
       data_statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", data_path.read_text()) if s]
       for statement in data_statements:
           print(statement)
           spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
   else:
       spark.read.format(format).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
-
-# COMMAND ----------
-
-
-for dataset in config.datasets:
-  display(spark.table(dataset.table.full_name))
