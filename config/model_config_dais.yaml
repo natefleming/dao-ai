@@ -84,11 +84,11 @@ resources:
     dais_genie_room: &dais_genie_room
       name: "DAIS RCT Demo Genie Room"
       description: "A room for Genie agents to interact"
-      space_id: 01f0410eb2041105a2d63acfbfe016e1
+      space_id: 01f01c91f1f414d59daaefd2b7ec82ea
     dais_executive_insights_genie_room: &dais_executive_insights_genie_room
       name: "DAIS Executive Insights"
       description: "A room curated for executive personas"
-      space_id: 01f0428851fa18ffa2f820c2186e1765
+      space_id: 01f01c91f1f414d59daaefd2b7ec82ea
 
 
   tables:
@@ -1384,6 +1384,21 @@ datasets:
     data: ../data/retail/inventory_data.sql
     format: sql
 
+  - table:
+      schema: *dais_schema
+      name: appointments
+    ddl: ../data/retail/appointments.sql
+    data: ../data/retail/appointments_data.sql
+    format: sql
+
+  - table:
+      schema: *dais_schema
+      name: managers
+    ddl: ../data/retail/managers.sql
+    data: ../data/retail/managers_data.sql
+    format: sql
+
+
   # Store dimension tables
   - table:
       schema: *dais_schema
@@ -1406,6 +1421,7 @@ datasets:
     ddl: ../data/retail/employee_performance.sql
     data: ../data/retail/employee_performance_data.sql
     format: sql
+
 
   # Additional product categories
   # - table:

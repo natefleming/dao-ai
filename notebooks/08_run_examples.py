@@ -20,7 +20,7 @@ _ = load_dotenv(find_dotenv())
 
 # COMMAND ----------
 
-dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config_dais.yaml")
 config_path: str = dbutils.widgets.get("config-path")
 print(config_path)
 

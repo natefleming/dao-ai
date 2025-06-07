@@ -79,7 +79,6 @@ for _, vector_store in vector_stores.items():
 
   print(f"Endpoint named {vector_store.endpoint.name} is ready.")
 
-
   if not index_exists(vsc, vector_store.endpoint.name, vector_store.index.full_name):
     print(f"Creating index {vector_store.index.full_name} on endpoint {vector_store.endpoint.name}...")
     vsc.create_delta_sync_index_and_wait(
