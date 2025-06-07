@@ -6,6 +6,7 @@ finding top employees by department, identifying best personal shopping associat
 and employee performance analytics.
 """
 
+import os
 import uuid
 from datetime import datetime, timedelta
 from typing import Any, Callable
@@ -13,21 +14,19 @@ from typing import Any, Callable
 import pandas as pd
 from databricks.sdk import WorkspaceClient
 from databricks.sdk.service.sql import StatementResponse, StatementState
+from databricks_ai_bridge.genie import GenieResponse
+from databricks_langchain.genie import Genie
 from langchain_core.language_models import LanguageModelLike
 from langchain_core.tools import tool
 from loguru import logger
-from databricks_ai_bridge.genie import GenieResponse
-from databricks_langchain.genie import Genie
-
 
 from retail_ai.config import (
+    GenieRoomModel,
     LLMModel,
     SchemaModel,
     WarehouseModel,
 )
 from retail_ai.dais.models import DepartmentInfo, TaskAssignmentInfo
-
-from retail_ai.config import GenieRoomModel
 
 
 def create_employee_insights_tool(
@@ -50,39 +49,39 @@ def create_employee_insights_tool(
     def genie_employee_insights(question: str) -> GenieResponse:
         """
         Get executive-level insights and analytics from retail operations data using Databricks Genie AI.
-        
+
         This tool provides comprehensive business intelligence for retail decision-making, including:
-        
+
         **Store Performance & Operations:**
         - Store revenue, profitability, and ROI analysis
         - Performance comparisons across locations and regions
         - Store efficiency metrics and operational KPIs
         - Traffic patterns and conversion rates
-        
+
         **Financial & Revenue Analytics:**
         - Sales performance trends and forecasting
         - Revenue breakdowns by category, brand, or time period
         - Margin analysis and profitability insights
         - Budget vs actual performance tracking
-        
+
         **Inventory & Product Intelligence:**
         - Inventory turnover and optimization opportunities
         - Product performance and category analysis
         - Stock-out impact on sales and customer satisfaction
         - Seasonal trends and demand forecasting
-        
+
         **Customer & Market Insights:**
-        - Customer behavior patterns and preferences  
+        - Customer behavior patterns and preferences
         - Market share analysis and competitive positioning
         - Customer acquisition and retention metrics
         - Demographic and geographic performance analysis
-        
+
         **Strategic Decision Support:**
         - Executive dashboards and KPI summaries
         - Growth opportunities and expansion analysis
         - Risk assessment and performance alerts
         - Operational efficiency recommendations
-        
+
         **Example Executive Questions:**
         - "What's our quarterly revenue growth compared to last year?"
         - "Which store locations are underperforming and why?"
@@ -91,22 +90,22 @@ def create_employee_insights_tool(
         - "Which markets show the highest growth potential?"
         - "How do our conversion rates compare across different store formats?"
         - "What's driving the decline in same-store sales this month?"
-        
+
         Args:
-            question (str): Executive-level business question about retail performance, 
+            question (str): Executive-level business question about retail performance,
                         revenue, operations, or strategic insights
-        
+
         Returns:
-            GenieResponse: Comprehensive analysis with data-driven insights, trends, 
+            GenieResponse: Comprehensive analysis with data-driven insights, trends,
                         and actionable recommendations for executive decision-making
         """
         logger.debug(f"executive_insights query: {question}")
-        
+
         try:
             # Forward the executive question to Genie for comprehensive analysis
             response: GenieResponse = genie.ask_question(question)
             return response
-        
+
         except Exception as e:
             logger.error(f"Error retrieving executive insights: {e}")
             return "Unable to retrieve executive insights at this time. Please try rephrasing your question or contact support for assistance."
