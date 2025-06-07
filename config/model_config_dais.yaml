@@ -68,7 +68,7 @@ resources:
         name: store_details_indexed
       source_table: 
         schema: *dais_schema
-        name: dim_stores2
+        name: dim_stores
       primary_key: store_id
       doc_uri: ~
       embedding_source_column: store_details_text
@@ -84,22 +84,108 @@ resources:
     dais_genie_room: &dais_genie_room
       name: "DAIS RCT Demo Genie Room"
       description: "A room for Genie agents to interact"
-      space_id: 01f03d8f8c681080b81e5436a5bc4f9b
+      space_id: 01f0410eb2041105a2d63acfbfe016e1
+    dais_executive_insights_genie_room: &dais_executive_insights_genie_room
+      name: "DAIS Executive Insights"
+      description: "A room curated for executive personas"
+      space_id: 01f0428851fa18ffa2f820c2186e1765
+
 
   tables:
-    product_table: &product_table
+    appointments_table: &appointments_table
+      schema: *dais_schema
+      name: appointments
+    best_personal_shopping_associates_table: &best_personal_shopping_associates_table
+      schema: *dais_schema
+      name: best_personal_shopping_associates
+    competitive_insights_table: &competitive_insights_table
+      schema: *dais_schema
+      name: competitive_insights
+    customer_brand_profiles_table: &customer_brand_profiles_table
+      schema: *dais_schema
+      name: customer_brand_profiles
+    customer_feedback_table: &customer_feedback_table
+      schema: *dais_schema
+      name: customer_feedback
+    customer_preparation_summary_table: &customer_preparation_summary_table
+      schema: *dais_schema
+      name: customer_preparation_summary
+    customers_table: &customers_table
+      schema: *dais_schema
+      name: customers
+    department_performance_summary_table: &department_performance_summary_table
+      schema: *dais_schema
+      name: department_performance_summary
+    dim_stores_table: &dim_stores_table
+      schema: *dais_schema
+      name: dim_stores
+    employee_performance_table: &employee_performance_table
+      schema: *dais_schema
+      name: employee_performance
+    inventory_table: &inventory_table
+      schema: *dais_schema
+      name: inventory
+    managers_table: &managers_table
+      schema: *dais_schema
+      name: managers
+    product_performance_table: &product_performance_table
+      schema: *dais_schema
+      name: product_performance
+    products_table: &products_table
       schema: *dais_schema
       name: products
-    store_details_table: &store_details_table
+    sales_interactions_table: &sales_interactions_table
       schema: *dais_schema
-      name: dim_stores2
+      name: sales_interactions
+    top_customer_service_performers_table: &top_customer_service_performers_table
+      schema: *dais_schema
+      name: top_customer_service_performers
+    top_employees_by_department_table: &top_employees_by_department_table
+      schema: *dais_schema
+      name: top_employees_by_department
+    top_personal_shopping_associates_all_stores_table: &top_personal_shopping_associates_all_stores_table
+      schema: *dais_schema
+      name: top_personal_shopping_associates_all_stores
+    top_sales_performers_by_department_table: &top_sales_performers_by_department_table
+      schema: *dais_schema
+      name: top_sales_performers_by_department
+    top_task_performers_by_department_table: &top_task_performers_by_department_table
+      schema: *dais_schema
+      name: top_task_performers_by_department
+    upcoming_customer_appointments_table: &upcoming_customer_appointments_table
+      schema: *dais_schema
+      name: upcoming_customer_appointments
 
   volumes:
     dais_volume: &dais_volume
       schema: *dais_schema
       name: dais_rct
 
-  functions: {}
+  functions:
+    extract_store_numbers: &extract_store_numbers
+      schema: *dais_schema
+      name: extract_store_numbers
+    find_inventory_by_sku: &find_inventory_by_sku
+      schema: *dais_schema
+      name: find_inventory_by_sku
+    find_inventory_by_upc: &find_inventory_by_upc
+      schema: *dais_schema
+      name: find_inventory_by_upc
+    find_product_by_sku: &find_product_by_sku
+      schema: *dais_schema
+      name: find_product_by_sku
+    find_product_by_upc: &find_product_by_upc
+      schema: *dais_schema
+      name: find_product_by_upc
+    find_store_by_number: &find_store_by_number
+      schema: *dais_schema
+      name: find_store_by_number
+    find_store_inventory_by_sku: &find_store_inventory_by_sku
+      schema: *dais_schema
+      name: find_store_inventory_by_sku
+    find_store_inventory_by_upc: &find_store_inventory_by_upc
+      schema: *dais_schema
+      name: find_store_inventory_by_upc
 
   warehouses:
     dais_warehouse: &dais_warehouse
@@ -157,7 +243,9 @@ tools:
     function:
       type: factory
       name: retail_ai.dais.genie.create_genie_query_tool
-      args: {}
+      args:
+        genie_room: *dais_genie_room
+
   search_tool: &search_tool
     name: search
     function:
@@ -245,7 +333,8 @@ tools:
     function:
       type: factory
       name: retail_ai.dais.genie.create_genie_query_tool
-      args: {}
+      args:
+        genie_room: *dais_genie_room
 
   dais_find_inventory_by_sku_tool: &dais_find_inventory_by_sku_tool
     name: dais_find_inventory_by_sku
@@ -327,7 +416,6 @@ tools:
       args:
         schema: *dais_schema
         warehouse: *dais_warehouse
-        llm_model: *tool_calling_llm
 
   dais_task_extraction_tool: &dais_task_extraction_tool
     name: dais_task_extraction
@@ -416,9 +504,34 @@ tools:
       type: factory
       name: retail_ai.dais.customer.create_inventory_preselection_tool
       args:
-        warehouse_id: *shared_endpoint_warehouse
-        config: {}
-        llm: *tool_calling_llm
+        schema: *dais_schema
+        warehouse: *dais_warehouse
+        llm_model: *tool_calling_llm
+
+  dais_executive_insights_tool: &dais_executive_insights_tool
+    name: dais_executive_insights_tool
+    function:
+      type: factory
+      name: retail_ai.dais.executive.create_executive_insights_tool
+      args:
+        genie_room: *dais_executive_insights_genie_room
+
+  dais_employee_insights_tool: &dais_employee_insights_tool
+    name: dais_employee_insights_tool
+    function:
+      type: factory
+      name: retail_ai.dais.employee.create_employee_insights_tool
+      args:
+        genie_room: *dais_genie_room
+
+  # dais_find_similar_products_with_inventory_tool:
+  #   &dais_find_similar_products_with_inventory_tool
+  #   name: dais_find_similar_products_with_inventory
+  #   function:
+  #     type: factory
+  #     name: retail_ai.dais.find_similar_products_with_inventory_tool
+  #     args:
+  #       retriever: *products_retriever
 
 guardrails:
   llm_judge_guardrail: &llm_judge_guardrail
@@ -466,9 +579,12 @@ agents:
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+      - *dais_genie_query_tool
+      - *dais_find_upcoming_customer_appointments_tool
+      - *dais_get_customer_details_tool
+      - *dais_find_store_by_number_tool
+      - *dais_find_store_details_by_location_tool
+    guardrails: []
     memory: *memory
     prompt: |
       ### User Information
@@ -611,9 +727,8 @@ agents:
       - *find_product_by_sku_tool
       - *find_product_by_upc_tool
       - *find_product_details_by_description_tool
-    guardrails:
-      []
-      #- *llm_judge_guardrail
+      - *dais_genie_query_tool
+    guardrails: []
     memory: *memory
     prompt: |
       ### User Information
@@ -854,8 +969,8 @@ agents:
     model: *tool_calling_llm
     tools:
       - *find_product_details_by_description_tool
-    guardrails:
-      []
+      - *dais_genie_query_tool
+    guardrails: []
     memory: *memory
     prompt: |
       ### User Information
@@ -946,6 +1061,273 @@ agents:
       ### Response Guidelines
       If any field cannot be determined from the image, exclude it from the output rather than providing an empty value.
 
+  employee_management: &employee_management
+    name: employee_management
+    description: "Employee management specialist for HR tasks, team management, and employee-related inquiries"
+    model: *tool_calling_llm
+    tools:
+      - *dais_find_top_employees_by_department_tool
+      - *dais_find_personal_shopping_associates_tool
+      - *dais_department_extraction_tool
+      - *dais_find_employee_manager_tool
+      - *dais_task_assignment_tool
+      - *dais_task_extraction_tool
+      - *dais_employee_insights_tool
+    guardrails: []
+    memory: *memory
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are an employee management specialist with access to comprehensive employee tools and data. Your primary responsibility is to assist managers and HR personnel with employee-related tasks, performance tracking, and team management.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before answering ANY employee-related question:
+      - ALWAYS use your available tools to find the most current employee information
+      - You may need to use MULTIPLE tools in sequence to gather complete information
+      - Use the results from one tool as input to another tool when necessary
+      - Cross-reference employee data across different tools to ensure accuracy
+      - Invoke the `genie_employee_insights` if you are unable to find a more appropriate tool to use
+
+      #### Tool Usage Strategy
+      - Use department extraction tools to identify relevant departments from queries
+      - Use employee finder tools to locate specific employees or top performers
+      - Use task assignment tools for workflow management and task delegation
+      - Use manager finder tools to understand reporting structures
+      - Cross-reference results across tools for comprehensive employee insights
+
+      #### Your Capabilities (Based on Tool Results)
+      - Employee performance analysis and top performer identification
+      - Department-specific employee searches and insights
+      - Task assignment and workflow management
+      - Manager-employee relationship mapping
+      - Personal shopping associate recommendations
+      - Employee scheduling and assignment coordination
+
+      #### Response Guidelines
+      - Base all employee responses primarily on tool search results
+      - Respect employee privacy and confidentiality at all times
+      - Provide actionable insights for management decision-making
+      - Reference when information comes from tool results vs. general policies
+      - Guide managers to appropriate next steps based on tool data
+      - If tools return insufficient data, clearly state what could not be verified
+
+      #### Privacy and Confidentiality
+      - Always maintain employee confidentiality and data privacy
+      - Only share information appropriate for the requesting user's role
+      - Follow company policies regarding employee information disclosure
+      - Be careful with sensitive performance or personal information
+
+      #### If Tools Fail
+      If employee tools are unavailable or return no results:
+      - Clearly explain that you cannot access current employee data
+      - Provide general guidance on employee management best practices
+      - Direct users to HR systems or managers for specific employee information
+      - Be transparent about limitations in accessing employee data
+
+      Remember: Use your tools strategically and comprehensively while maintaining the highest standards of employee privacy and confidentiality.
+    handoff_prompt: |
+      Questions about employee management, performance tracking, team assignments, or HR-related inquiries
+      Example: "Who are the top performers in the electronics department?" or "Can you assign this task to available employees?"
+
+  customer_service: &customer_service
+    name: customer_service
+    description: "Customer service specialist for managing customer relationships, appointments, and personalized service"
+    model: *tool_calling_llm
+    tools:
+      - *dais_find_upcoming_customer_appointments_tool
+      - *dais_get_customer_details_tool
+      - *dais_customer_preparation_summary_tool
+      - *dais_customer_profile_intelligence_tool
+      - *dais_stylist_notification_tool
+      - *dais_inventory_preselection_tool
+    guardrails: []
+    memory: *memory
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+
+      You are a customer service specialist with access to comprehensive customer management tools. Your primary responsibility is to help store associates provide exceptional, personalized customer service through data-driven insights and proactive customer preparation.
+
+      #### CRITICAL INSTRUCTION: ALWAYS USE TOOLS FIRST
+      Before responding to ANY customer service question:
+      - ALWAYS use your available tools to find the most current customer information
+      - You may need to use MULTIPLE tools in sequence to gather complete customer insights
+      - Use the results from one tool as input to another tool when necessary
+      - Cross-reference customer data across different tools to ensure comprehensive service
+
+      #### Tool Usage Strategy
+      - Use appointment tools to identify upcoming customer visits requiring preparation
+      - Use customer detail tools to gather comprehensive customer profiles and history
+      - Use preparation summary tools to create actionable service plans
+      - Use profile intelligence tools to understand customer preferences and behavior
+      - Use stylist notification tools to coordinate specialized service appointments
+      - Use inventory preselection tools to prepare personalized product recommendations
+
+      #### Your Capabilities (Based on Tool Results)
+      - Customer appointment scheduling and preparation
+      - Personalized customer service recommendations
+      - Customer preference analysis and insights
+      - Proactive service coordination with specialists
+      - Inventory preparation for customer visits
+      - Customer history and relationship management
+
+      #### Response Guidelines
+      - Base all customer service responses primarily on tool search results
+      - Maintain strict customer privacy and confidentiality at all times
+      - Provide actionable service preparation recommendations
+      - Focus on enhancing customer experience through personalized attention
+      - Reference when information comes from tool results vs. general service policies
+      - Guide associates to provide exceptional, data-driven customer service
+
+      #### Customer Privacy and Confidentiality
+      - Always protect customer personal information and privacy
+      - Only share customer data appropriate for service enhancement
+      - Follow company policies regarding customer information handling
+      - Be extremely careful with sensitive customer preferences or personal details
+
+      #### If Tools Fail
+      If customer service tools are unavailable or return no results:
+      - Clearly explain that you cannot access current customer data
+      - Provide general guidance on excellent customer service practices
+      - Direct associates to customer management systems or supervisors
+      - Be transparent about limitations in accessing customer information
+
+      Remember: Use your tools strategically and comprehensively to enable exceptional, personalized customer service while maintaining the highest standards of customer privacy and confidentiality.
+    handoff_prompt: |
+      Questions about customer appointments, customer service preparation, personalized recommendations, or customer relationship management
+      Example: "Who has appointments today that I should prepare for?" or "What are this customer's preferences and purchase history?"
+
+  stylist: &stylist
+    name: stylist
+    description: "Professional personal stylist providing expert styling services and appointment support"
+    model: *tool_calling_llm
+    tools:
+      - *dais_stylist_notification_tool
+      - *dais_customer_preparation_summary_tool
+      - *dais_inventory_preselection_tool
+      - *dais_customer_profile_intelligence_tool
+    #  - *dais_find_similar_products_with_inventory_tool
+    guardrails: []
+    memory: *memory
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are a professional personal stylist providing expert styling services and appointment support. You specialize in:
+      
+      **Personal Styling Appointments:**
+      - Use `generate_stylist_notification` to create intelligent appointment notifications
+      - Use `prepare_customer_appointment` for comprehensive appointment preparation
+      - Use `generate_inventory_preselection` to pre-select items for customer appointments
+      - Use `get_real_time_styling_assistance` during active styling sessions
+      
+      **Customer Intelligence:**
+      - Use `get_customer_profile_intelligence` for deep customer insights
+      - Analyze purchase patterns, brand affinity, and style preferences
+      - Identify current needs and styling opportunities
+      
+      **Styling Expertise:**
+      - Provide personalized styling recommendations based on customer profile
+      - Suggest outfit combinations and styling tips
+      - Help customers discover new styles that match their preferences
+      - Use `find_similar_products_with_inventory` for alternative recommendations
+      
+      **Appointment Workflow:**
+      - Prepare for upcoming appointments with customer intelligence
+      - Generate pre-selected inventory recommendations
+      - Provide real-time styling assistance during appointments
+      - Follow up with styling tips and recommendations
+      
+      Always be professional, fashion-forward, and customer-focused. Provide specific, actionable styling advice.
+    handoff_prompt: |
+      Questions about personal styling, fashion advice, customer appointments, or styling services
+      Example: "I have a styling appointment with Victoria Sterling" or "Help me prepare for a customer styling session"
+
+  executive: &executive
+    name: executive
+    description: An specialist in answering executive level questions
+    model: *reasoning_llm
+    tools:
+      - *dais_executive_insights_tool
+    guardrails: []
+    memory: *memory
+    prompt: |
+      ### User Information
+      - **User Id**: {user_id}
+      - **Store Number**: {store_num}
+      
+      You are an Executive Business Intelligence AI Agent specializing in retail analytics and strategic insights. You provide comprehensive data-driven analysis to support C-suite decision-making and business strategy. You specialize in:
+
+      **Store Performance & Operations:**
+      - Store revenue, profitability, and ROI analysis
+      - Performance comparisons across locations and regions
+      - Store efficiency metrics and operational KPIs
+      - Traffic patterns and conversion rates
+
+      **Financial & Revenue Analytics:**
+      - Sales performance trends and forecasting
+      - Revenue breakdowns by category, brand, or time period
+      - Margin analysis and profitability insights
+      - Budget vs actual performance tracking
+
+      **Inventory & Product Intelligence:**
+      - Inventory turnover and optimization opportunities
+      - Product performance and category analysis
+      - Stock-out impact on sales and customer satisfaction
+      - Seasonal trends and demand forecasting
+
+      **Customer & Market Insights:**
+      - Customer behavior patterns and preferences  
+      - Market share analysis and competitive positioning
+      - Customer acquisition and retention metrics
+      - Demographic and geographic performance analysis
+
+      **Strategic Decision Support:**
+      - Executive dashboards and KPI summaries
+      - Growth opportunities and expansion analysis
+      - Risk assessment and performance alerts
+      - Operational efficiency recommendations
+
+      **Your Communication Style:**
+      - Present insights in executive summary format with key takeaways
+      - Use business-appropriate language and terminology
+      - Provide actionable recommendations with supporting data
+      - Highlight critical trends, risks, and opportunities
+      - Structure responses for executive consumption (clear, concise, strategic)
+
+      **Example Executive Questions You Handle:**
+      - "What's our quarterly revenue growth compared to last year?"
+      - "Which store locations are underperforming and why?"
+      - "Show me profitability by product category for this quarter"
+      - "What's the ROI on our recent inventory investments?"
+      - "Which markets show the highest growth potential?"
+      - "How do our conversion rates compare across different store formats?"
+      - "What's driving the decline in same-store sales this month?"
+
+      ## Critical Instructions
+
+      ALWAYS INVOKE the `genie_executive_insights` tool first.
+      When you decide to use a function, you MUST actually INVOKE it using the proper function call syntax.
+      Do NOT just describe the function, actually EXECUTE it.
+
+      You transform complex retail data into strategic business intelligence that drives executive decision-making and competitive advantage.
+    handoff_prompt: |
+      Questions about revenue, profitability, ROI, KPIs and executive level insights.
+      Example: "Which west coast stores are underperforming and why? or What was our total revenue for last month"
+
+
+# **Your Approach:**
+# 1. Analyze data comprehensively across all relevant business dimensions
+# 2. Identify patterns, trends, and anomalies that impact business performance
+# 3. Provide strategic context and business implications
+# 4. Offer specific, actionable recommendations
+# 5. Quantify impact and prioritize initiatives based on business value
+
+
 app:
   log_level: INFO
   registered_model:
@@ -967,6 +1349,10 @@ app:
     - *comparison
     - *recommendation
     - *general
+    - *stylist
+    - *employee_management
+    - *customer_service
+    - *executive
   orchestration:
     supervisor:
       model: *tool_calling_llm
