@@ -1001,7 +1001,7 @@ datasets:
   # Store dimension tables
   - table:
       schema: *dais_schema
-      name: dim_stores2
+      name: dim_stores
     ddl: ../data/retail/dim_stores.sql
     data: ../data/retail/dim_stores_data.sql
     format: sql
@@ -1031,12 +1031,12 @@ datasets:
     format: sql
 
   # Demo and presentation materials
-  - table:
-      schema: *dais_schema
-      name: demo_script
-    ddl: ../data/retail/demo_script.md
-    data: ../data/retail/demo_script.md
-    format: markdown
+  # - table:
+  #     schema: *dais_schema
+  #     name: demo_script
+  #   ddl: ../data/retail/demo_script.md
+  #   data: ../data/retail/demo_script.md
+  #   format: markdown
 
   # Customer management
   - table:
@@ -1046,16 +1046,17 @@ datasets:
     data: ../data/retail/customers_data.sql
     format: sql
 
-  # Customer appointments for styling services
-  - table:
-      schema: *dais_schema
-      name: appointments
-    ddl: ../data/retail/appointments.sql
-    data: ../data/retail/appointments_data.sql
-    format: sql
-
-  # Brand Rep Product Education Demo Tables
   - table:
       schema: *dais_schema
       name: brand_rep_demo_tables
-    ddl: ../data/retail/brand_rep_demo_tables.s
+    ddl: ../data/retail/brand_rep_demo_tables.sql
+    data: ../data/retail/brand_rep_demo_data.sql
+    format: sql
+
+  # Brand Rep Demo Sample Queries
+  - table:
+      schema: *dais_schema
+      name: brand_rep_demo_queries
+    ddl: ../data/retail/brand_rep_demo_queries.sql
+    data: ../data/retail/brand_rep_demo_queries.sql
+    format: sql
