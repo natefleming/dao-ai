@@ -13,7 +13,7 @@ artifacts:
 variables:
   config_path:
     description: Path to the configuration file for the job.
-    default: ../config/model_config.yaml
+    default: ../config/model_config_dais.yaml
   node_type: 
     description: The job compute node type
     default: Standard_D4ads_v5

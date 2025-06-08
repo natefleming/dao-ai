@@ -1529,10 +1529,10 @@ unity_catalog_functions:
       parameters:
         store_ids: [1, 2]
 
-  - function:
-      schema: *dais_schema
-      name: extract_store_numbers
-    ddl: ../functions/dais/extract_store_numbers.sql
-    test:
-      parameters:
-        input_text: "I need help with store 001 and also check inventory at store 002"
+  # - function:
+  #     schema: *dais_schema
+  #     name: extract_store_numbers
+  #   ddl: ../functions/dais/extract_store_numbers.sql
+  #   test:
+  #     parameters:
+  #       input_text: "I need help with store 001 and also check inventory at store 002"
