@@ -77,9 +77,63 @@
           "type": "string"
         },
         "tags": {
-          "additionalProperties": true,
-          "title": "Tags",
-          "type": "object"
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Tags"
+        },
+        "scale_to_zero": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": true,
+          "title": "Scale To Zero"
+        },
+        "environment_vars": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Environment Vars"
+        },
+        "budget_policy_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Budget Policy Id"
+        },
+        "workload_size": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/WorkloadSize"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": "Small"
         },
         "permissions": {
           "items": {
@@ -103,7 +157,6 @@
         "log_level",
         "registered_model",
         "endpoint_name",
-        "tags",
         "permissions",
         "orchestration"
       ],
@@ -236,6 +289,18 @@
         },
         "format": {
           "$ref": "#/$defs/DatasetFormat"
+        },
+        "read_options": {
+          "anyOf": [
+            {
+              "additionalProperties": true,
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Read Options"
         }
       },
       "required": [
@@ -251,7 +316,9 @@
       "enum": [
         "CAN_MANAGE",
         "CAN_QUERY",
-        "CAN_VIEW"
+        "CAN_VIEW",
+        "CAN_REVIEW",
+        "NO_PERMISSIONS"
       ],
       "title": "Entitlement",
       "type": "string"
@@ -988,6 +1055,37 @@
             }
           ],
           "title": "Default Agent"
+        },
+        "handoffs": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "items": {
+                      "anyOf": [
+                        {
+                          "$ref": "#/$defs/AgentModel"
+                        },
+                        {
+                          "type": "string"
+                        }
+                      ]
+                    },
+                    "type": "array"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "title": "Handoffs"
         }
       },
       "required": [
@@ -1295,9 +1393,17 @@
       ],
       "title": "WarehouseModel",
       "type": "object"
+    },
+    "WorkloadSize": {
+      "enum": [
+        "Small",
+        "Medium",
+        "Large"
+      ],
+      "title": "WorkloadSize",
+      "type": "string"
     }
   },
-  "additionalProperties": true,
   "properties": {
     "schemas": {
       "additionalProperties": {

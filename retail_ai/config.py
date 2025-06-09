@@ -445,6 +445,7 @@ class SupervisorModel(BaseModel):
 class SwarmModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
+    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(default_factory=dict)
 
 
 class OrchestrationModel(BaseModel):
@@ -475,6 +476,8 @@ class Entitlement(str, Enum):
     CAN_MANAGE = "CAN_MANAGE"
     CAN_QUERY = "CAN_QUERY"
     CAN_VIEW = "CAN_VIEW"
+    CAN_REVIEW = "CAN_REVIEW"
+    NO_PERMISSIONS = "NO_PERMISSIONS"
 
 
 class AppPermissionModel(BaseModel):
@@ -491,12 +494,22 @@ class LogLevel(str, Enum):
     ERROR = "ERROR"
 
 
+class WorkloadSize(str, Enum):
+    SMALL = "Small"
+    MEDIUM = "Medium"
+    LARGE = "Large"
+
+
 class AppModel(BaseModel):
     model_config = ConfigDict(use_enum_values=True)
     log_level: LogLevel
     registered_model: RegisteredModelModel
     endpoint_name: str
-    tags: dict[str, Any]
+    tags: Optional[dict[str, Any]] = Field(default_factory=dict)
+    scale_to_zero: Optional[bool] = True
+    environment_vars: Optional[dict[str, Any]] = Field(default_factory=dict)
+    budget_policy_id: Optional[str] = None
+    workload_size: Optional[WorkloadSize] = "Small"
     permissions: list[AppPermissionModel]
     agents: list[AgentModel] = Field(default_factory=list)
     orchestration: OrchestrationModel
@@ -523,6 +536,7 @@ class DatasetModel(BaseModel):
     ddl: str
     data: str
     format: DatasetFormat
+    read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
@@ -549,7 +563,7 @@ class ResourcesModel(BaseModel):
 
 
 class AppConfig(BaseModel):
-    model_config = ConfigDict(extra="allow", use_enum_values=True)
+    model_config = ConfigDict(use_enum_values=True)
     schemas: dict[str, SchemaModel]
     resources: ResourcesModel
     retrievers: dict[str, RetrieverModel] = Field(default_factory=dict)
