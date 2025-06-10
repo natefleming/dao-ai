@@ -87,8 +87,8 @@ for _, volume in config.resources.volumes.items():
   print(volume.name)
   volume: VolumeModel
   volume_info: VolumeInfo = get_or_create_volume(
-    catalog=catalog_info,
-    database=schema_info,
+    catalog=volume.schema_model.catalog_name,
+    schema=volume.schema_model.schema_name,
     name=volume.name,
     w=w
   )

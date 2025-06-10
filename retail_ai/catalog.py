@@ -115,40 +115,40 @@ def get_or_create_database(
 
 
 def get_or_create_volume(
-    catalog: CatalogInfo,
-    database: SchemaInfo,
+    catalog: str,
+    schema: str,
     name: str,
     volume_type: VolumeType = VolumeType.MANAGED,
     w: WorkspaceClient | None = None,
 ) -> VolumeInfo:
     """
     Get an existing volume or create a new one if it doesn't exist.
-
+ 
     Provides idempotent volume creation within a Unity Catalog database.
     Volumes are used to store files and can be mounted like file systems.
-
+ 
     Args:
         catalog: The catalog object where the volume should exist
         database: The database/schema object where the volume should exist
         name: The name of the volume to get or create
         volume_type: The type of volume (MANAGED or EXTERNAL)
         w: Optional WorkspaceClient instance (creates one if not provided)
-
+ 
     Returns:
         VolumeInfo object representing the requested volume
     """
     if w is None:
         w = WorkspaceClient()
-
+ 
     volume: VolumeInfo
     try:
         # Try to fetch the existing volume using its fully qualified name
-        volume = w.volumes.read(name=f"{database.full_name}.{name}")
+        volume = w.volumes.read(name=f"{catalog}.{schema}.{name}")
     except NotFound:
         # Create the volume if it doesn't exist
         volume = w.volumes.create(
-            catalog_name=catalog.name,
-            schema_name=database.name,
+            catalog_name=catalog,
+            schema_name=schema,
             name=name,
             volume_type=VolumeType.MANAGED,
         )
