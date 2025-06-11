@@ -7,8 +7,16 @@
           "type": "string"
         },
         "description": {
-          "title": "Description",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
         "model": {
           "$ref": "#/$defs/LLMModel"
@@ -53,16 +61,70 @@
           ],
           "default": null,
           "title": "Handoff Prompt"
+        },
+        "pre_agent_hook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Pre Agent Hook"
+        },
+        "post_agent_hook": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/PythonFunctionModel"
+            },
+            {
+              "$ref": "#/$defs/FactoryFunctionModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Post Agent Hook"
         }
       },
       "required": [
         "name",
-        "description",
         "model",
         "prompt"
       ],
       "title": "AgentModel",
       "type": "object"
+    },
+    "AnyTool": {
+      "anyOf": [
+        {
+          "$ref": "#/$defs/PythonFunctionModel"
+        },
+        {
+          "$ref": "#/$defs/FactoryFunctionModel"
+        },
+        {
+          "$ref": "#/$defs/UnityCatalogFunctionModel"
+        },
+        {
+          "$ref": "#/$defs/McpFunctionModel"
+        },
+        {
+          "type": "string"
+        }
+      ]
     },
     "AppModel": {
       "properties": {
@@ -431,8 +493,16 @@
           "type": "string"
         },
         "description": {
-          "title": "Description",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
         "space_id": {
           "title": "Space Id",
@@ -441,7 +511,6 @@
       },
       "required": [
         "name",
-        "description",
         "space_id"
       ],
       "title": "GenieRoomModel",
@@ -746,17 +815,6 @@
         "name": {
           "title": "Name",
           "type": "string"
-        },
-        "schema": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/SchemaModel"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null
         }
       },
       "required": [
@@ -1138,21 +1196,7 @@
           "type": "string"
         },
         "function": {
-          "anyOf": [
-            {
-              "$ref": "#/$defs/PythonFunctionModel"
-            },
-            {
-              "$ref": "#/$defs/FactoryFunctionModel"
-            },
-            {
-              "$ref": "#/$defs/UnityCatalogFunctionModel"
-            },
-            {
-              "$ref": "#/$defs/McpFunctionModel"
-            }
-          ],
-          "title": "Function"
+          "$ref": "#/$defs/AnyTool"
         }
       },
       "required": [
@@ -1378,8 +1422,16 @@
           "type": "string"
         },
         "description": {
-          "title": "Description",
-          "type": "string"
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Description"
         },
         "warehouse_id": {
           "title": "Warehouse Id",
@@ -1388,7 +1440,6 @@
       },
       "required": [
         "name",
-        "description",
         "warehouse_id"
       ],
       "title": "WarehouseModel",
@@ -1495,6 +1546,19 @@
         }
       ],
       "title": "Unity Catalog Functions"
+    },
+    "providers": {
+      "anyOf": [
+        {
+          "additionalProperties": true,
+          "type": "object"
+        },
+        {
+          "type": "null"
+        }
+      ],
+      "default": null,
+      "title": "Providers"
     }
   },
   "required": [

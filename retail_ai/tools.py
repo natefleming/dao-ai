@@ -31,9 +31,8 @@ from pydantic import BaseModel, Field
 from unitycatalog.ai.core.base import FunctionExecutionResult
 
 from retail_ai.config import (
-    BaseFunctionModel,
+    AnyTool,
     FactoryFunctionModel,
-    FunctionType,
     GenieRoomModel,
     McpFunctionModel,
     PythonFunctionModel,
@@ -234,8 +233,6 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
         A sequence of BaseTool objects created from the provided configurations
     """
 
-    logger.debug("create_tools")
-
     tools: OrderedDict[str, BaseTool] = OrderedDict()
 
     for tool_config in tool_models:
@@ -246,24 +243,14 @@ def create_tools(tool_models: Sequence[ToolModel]) -> Sequence[BaseTool]:
         tool: BaseTool = tool_registry.get(name)
         if tool is None:
             logger.debug(f"Creating tool: {name}...")
-            function: BaseFunctionModel = tool_config.function
-            function_type: FunctionType = function.type
-
-            match function_type:
-                case FunctionType.UNITY_CATALOG:
-                    tool = create_uc_tool(function)
-                case FunctionType.FACTORY:
-                    tool = create_factory_tool(function)
-                case FunctionType.PYTHON:
-                    tool = create_python_tool(function)
-                case FunctionType.MCP:
-                    tool = create_mcp_tool(function)
-                case _:
-                    raise ValueError(f"Unknown tool type: {function_type}")
-
+            function: AnyTool = tool_config.function
+            if isinstance(function, str):
+                function = PythonFunctionModel(name=function)
+            tool = function.as_tool()
+            logger.debug(f"Registering tool: {tool_config}")
             tool_registry[name] = tool
         else:
-            logger.debug(f"Tool {name} already exists, reusing it.")
+            logger.debug(f"Tool {name} already registered.")
 
         tools[name] = tool
 
@@ -285,7 +272,7 @@ def create_mcp_tool(
     Returns:
         A callable tool function that wraps the specified MCP function
     """
-    logger.debug(f"create_mcp_tool: {function.full_name}")
+    logger.debug(f"create_mcp_tool: {function}")
 
     connection: dict[str, Any]
     match function.transport:
@@ -319,7 +306,7 @@ def create_factory_tool(
     Returns:
         A callable tool function that wraps the specified factory function
     """
-    logger.debug(f"create_factory_tool: {function.full_name}")
+    logger.debug(f"create_factory_tool: {function}")
 
     factory: Callable[..., Any] = load_function(function_name=function.full_name)
     tool: Callable[..., Any] = factory(**function.args)
@@ -327,7 +314,7 @@ def create_factory_tool(
 
 
 def create_python_tool(
-    function: PythonFunctionModel,
+    function: PythonFunctionModel | str,
 ) -> Callable[..., Any]:
     """
     Create a Python tool from a Python function model.
@@ -338,14 +325,17 @@ def create_python_tool(
     Returns:
         A callable tool function that wraps the specified Python function
     """
-    logger.debug(f"create_python_tool: {function.full_name}")
+    logger.debug(f"create_python_tool: {function}")
+
+    if isinstance(function, PythonFunctionModel):
+        function = function.full_name
 
     # Load the Python function dynamically
-    tool: Callable[..., Any] = load_function(function_name=function.full_name)
+    tool: Callable[..., Any] = load_function(function_name=function)
     return tool
 
 
-def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
+def create_uc_tool(function: UnityCatalogFunctionModel | str) -> Sequence[BaseTool]:
     """
     Create LangChain tools from Unity Catalog functions.
 
@@ -360,14 +350,15 @@ def create_uc_tool(function: UnityCatalogFunctionModel) -> Sequence[BaseTool]:
         A sequence of BaseTool objects that wrap the specified UC functions
     """
 
-    logger.debug(f"create_uc_tool: {function.full_name}")
+    logger.debug(f"create_uc_tool: {function}")
 
-    # set_uc_function_client(DatabricksFunctionClient(WorkspaceClient()))
+    if isinstance(function, UnityCatalogFunctionModel):
+        function = function.full_name
 
     client: DatabricksFunctionClient = DatabricksFunctionClient()
 
     toolkit: UCFunctionToolkit = UCFunctionToolkit(
-        function_names=[function.full_name], client=client
+        function_names=[function], client=client
     )
 
     tool = next(iter(toolkit.tools or []), None)
@@ -452,7 +443,6 @@ def create_genie_tool(
     Returns:
         A callable tool function that processes natural language queries through Genie
     """
-    logger.debug("create_genie_tool")
 
     if isinstance(genie_room, dict):
         genie_room = GenieRoomModel(**genie_room)

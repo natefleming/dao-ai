@@ -3,9 +3,11 @@ from abc import ABC, abstractmethod
 from enum import Enum
 from typing import Any, Callable, Optional, Sequence
 
+from databricks.sdk import WorkspaceClient
 from databricks_langchain import ChatDatabricks, DatabricksEmbeddings
 from langchain_core.embeddings.embeddings import Embeddings
 from langchain_core.language_models import LanguageModelLike
+from langchain_core.tools.base import BaseTool
 from langgraph.store.base import BaseStore
 from langgraph.store.memory import InMemoryStore
 from langgraph.store.postgres import PostgresStore
@@ -77,6 +79,13 @@ class SchemaModel(BaseModel, HasFullName):
     def full_name(self) -> str:
         return f"{self.catalog_name}.{self.schema_name}"
 
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_schema(self)
+
 
 class TableModel(BaseModel, HasFullName, IsDatabricksResource):
     schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
@@ -107,10 +116,12 @@ class LLMModel(BaseModel, IsDatabricksResource):
 
     def as_chat_model(self) -> LanguageModelLike:
         chat_client: LanguageModelLike = ChatDatabricks(
-            model=self.name, temperature=self.temperature
+            model=self.name, temperature=self.temperature, max_tokens=self.max_tokens
         )
         fallbacks: Sequence[LanguageModelLike] = [
-            ChatDatabricks(model=f, temperature=self.temperature)
+            ChatDatabricks(
+                model=f, temperature=self.temperature, max_tokens=self.max_tokens
+            )
             for f in self.fallbacks
             if f != self.name
         ]
@@ -162,7 +173,7 @@ class VectorStoreModel(BaseModel, IsDatabricksResource):
 
 class GenieRoomModel(BaseModel, IsDatabricksResource):
     name: str
-    description: str
+    description: Optional[str] = None
     space_id: str
 
     def as_resource(self) -> DatabricksResource:
@@ -180,6 +191,13 @@ class VolumeModel(BaseModel, HasFullName):
         if self.schema_model:
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
+
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_volume(self)
 
 
 class FunctionModel(BaseModel, HasFullName, IsDatabricksResource):
@@ -213,7 +231,7 @@ class ConnectionModel(BaseModel, HasFullName, IsDatabricksResource):
 
 class WarehouseModel(BaseModel, IsDatabricksResource):
     name: str
-    description: str
+    description: Optional[str] = None
     warehouse_id: str
 
     def as_resource(self) -> DatabricksResource:
@@ -275,14 +293,16 @@ class BaseFunctionModel(BaseModel):
 
 class PythonFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
-    schema_model: Optional[SchemaModel] = Field(default=None, alias="schema")
     type: FunctionType = FunctionType.PYTHON
 
     @property
     def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
+
+    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+        from retail_ai.tools import create_python_tool
+
+        return create_python_tool(self)
 
 
 class FactoryFunctionModel(BaseFunctionModel, HasFullName):
@@ -293,6 +313,11 @@ class FactoryFunctionModel(BaseFunctionModel, HasFullName):
     @property
     def full_name(self) -> str:
         return self.name
+
+    def as_tool(self, **kwargs: Any) -> Callable[..., Any]:
+        from retail_ai.tools import create_factory_tool
+
+        return create_factory_tool(self, **kwargs)
 
 
 class TransportType(str, Enum):
@@ -323,6 +348,11 @@ class McpFunctionModel(BaseFunctionModel, HasFullName):
             raise ValueError("args must not be provided for STDIO transport")
         return self
 
+    def as_tool(self, **kwargs: Any) -> BaseTool:
+        from retail_ai.tools import create_mcp_tool
+
+        return create_mcp_tool(self)
+
 
 class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
     model_config = ConfigDict(use_enum_values=True)
@@ -335,15 +365,24 @@ class UnityCatalogFunctionModel(BaseFunctionModel, HasFullName):
             return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
         return self.name
 
+    def as_tool(self, **kwargs: Any) -> BaseTool:
+        from retail_ai.tools import create_uc_tool
+
+        return create_uc_tool(self)
+
+
+type AnyTool = (
+    PythonFunctionModel
+    | FactoryFunctionModel
+    | UnityCatalogFunctionModel
+    | McpFunctionModel
+    | str
+)
+
 
 class ToolModel(BaseModel):
     name: str
-    function: (
-        PythonFunctionModel
-        | FactoryFunctionModel
-        | UnityCatalogFunctionModel
-        | McpFunctionModel
-    )
+    function: AnyTool
 
 
 class GuardrailsModel(BaseModel):
@@ -428,13 +467,15 @@ class MemoryModel(BaseModel):
 
 class AgentModel(BaseModel):
     name: str
-    description: str
+    description: Optional[str] = None
     model: LLMModel
     tools: list[ToolModel] = Field(default_factory=list)
     guardrails: list[GuardrailsModel] = Field(default_factory=list)
     memory: Optional[MemoryModel] = None
     prompt: str
     handoff_prompt: Optional[str] = None
+    pre_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
+    post_agent_hook: Optional[PythonFunctionModel | FactoryFunctionModel | str] = None
 
 
 class SupervisorModel(BaseModel):
@@ -445,7 +486,9 @@ class SupervisorModel(BaseModel):
 class SwarmModel(BaseModel):
     model: LLMModel
     default_agent: AgentModel | str
-    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(default_factory=dict)
+    handoffs: Optional[dict[str, Optional[list[AgentModel | str]]]] = Field(
+        default_factory=dict
+    )
 
 
 class OrchestrationModel(BaseModel):
@@ -538,6 +581,13 @@ class DatasetModel(BaseModel):
     format: DatasetFormat
     read_options: Optional[dict[str, Any]] = Field(default_factory=dict)
 
+    def create(self, w: WorkspaceClient | None = None) -> None:
+        from retail_ai.providers.base import ServiceProvider
+        from retail_ai.providers.databricks import DatabricksProvider
+
+        provider: ServiceProvider = DatabricksProvider(w=w)
+        provider.create_dataset(self)
+
 
 class UnityCatalogFunctionSqlTestModel(BaseModel):
     parameters: Optional[dict[str, Any]] = Field(default_factory=dict)
@@ -577,6 +627,7 @@ class AppConfig(BaseModel):
     unity_catalog_functions: Optional[list[UnityCatalogFunctionSqlModel]] = Field(
         default_factory=list
     )
+    providers: Optional[dict[type | str, Any]] = None
 
     def find_agents(
         self, predicate: Callable[[AgentModel], bool] | None = None

@@ -14,7 +14,7 @@
 
 # COMMAND ----------
 
-dbutils.widgets.text(name="config-path", defaultValue="../config/model_config_dais.yaml")
+dbutils.widgets.text(name="config-path", defaultValue="../config/model_config.yaml")
 config_path: str = dbutils.widgets.get("config-path")
 print(config_path)
 
@@ -58,71 +58,31 @@ config: AppConfig = AppConfig(**model_config.to_dict())
 # COMMAND ----------
 
 from databricks.sdk import WorkspaceClient
-from databricks.sdk.service.catalog import (
-  CatalogInfo, 
-  SchemaInfo, 
-  VolumeInfo, 
-  VolumeType
-)
-from retail_ai.catalog import (
-  get_or_create_catalog, 
-  get_or_create_database, 
-  get_or_create_volume
-)
 from retail_ai.config import SchemaModel, VolumeModel
 
 
 w: WorkspaceClient = WorkspaceClient()
 
-
 for _, schema in config.schemas.items():
   schema: SchemaModel
-  catalog_info: CatalogInfo = get_or_create_catalog(name=schema.catalog_name, w=w)
-  schema_info: SchemaInfo = get_or_create_database(catalog=catalog_info, name=schema.schema_name, w=w)
+  _ = schema.create(w=w)
 
-  print(f"catalog: {catalog_info.full_name}")
-  print(f"schema: {schema_info.full_name}")
+  print(f"schema: {schema.full_name}")
 
 for _, volume in config.resources.volumes.items():
-  print(volume.name)
   volume: VolumeModel
-  volume_info: VolumeInfo = get_or_create_volume(
-    catalog=catalog_info,
-    database=schema_info,
-    name=volume.name,
-    w=w
-  )
-  print(f"volume: {volume_info.full_name}")
+  
+  _ = volume.create(w=w)
+  print(f"volume: {volume.full_name}")
 
 # COMMAND ----------
 
-from typing import Any, Sequence
-import re
-from pathlib import Path
 from retail_ai.config import DatasetModel
 
 datasets: Sequence[DatasetModel] = config.datasets
 
-current_dir: Path = "file:///" / Path.cwd().relative_to("/")
-
 for dataset in datasets:
-  dataset: DatasetModel
-  table: str = dataset.table.full_name
-  ddl_path: Path = Path(dataset.ddl)
-  data_path: Path = current_dir / Path(dataset.data)
-  format: str = dataset.format
-  read_options: dict[str, Any] = dataset.read_options or {}
-
-  statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", ddl_path.read_text()) if s]
-  for statement in statements:
-      print(statement)
-      spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
-
-  if format == "sql":
-      data_path = Path(dataset.data)
-      data_statements: Sequence[str] = [s for s in re.split(r"\s*;\s*", data_path.read_text()) if s]
-      for statement in data_statements:
-          print(statement)
-          spark.sql(statement, args={"database": dataset.table.schema_model.full_name})
-  else:
-      spark.read.format(format).options(**read_options).load(data_path.as_posix()).write.mode("overwrite").saveAsTable(table)
+    dataset: DatasetModel
+    dataset.create()
+    display(spark.table(dataset.table.full_name))
+    
