@@ -162,9 +162,6 @@ resources:
       name: dais_rct
 
   functions:
-    extract_store_numbers: &extract_store_numbers
-      schema: *dais_schema
-      name: extract_store_numbers
     find_inventory_by_sku: &find_inventory_by_sku
       schema: *dais_schema
       name: find_inventory_by_sku
