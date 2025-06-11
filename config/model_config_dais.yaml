@@ -1391,14 +1391,6 @@ datasets:
     data: ../data/retail/appointments_data.sql
     format: sql
 
-  - table:
-      schema: *dais_schema
-      name: managers
-    ddl: ../data/retail/managers.sql
-    data: ../data/retail/managers_data.sql
-    format: sql
-
-
   # Store dimension tables
   - table:
       schema: *dais_schema
@@ -1420,6 +1412,13 @@ datasets:
       name: employee_performance
     ddl: ../data/retail/employee_performance.sql
     data: ../data/retail/employee_performance_data.sql
+    format: sql
+
+  - table:
+      schema: *dais_schema
+      name: managers
+    ddl: ../data/retail/managers.sql
+    data: ../data/retail/managers_data.sql
     format: sql
 
 
