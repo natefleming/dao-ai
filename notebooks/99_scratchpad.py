@@ -774,7 +774,7 @@ display(inventory_df.join(product_df, on="product_id").where(F.col("product_id")
 
 # MAGIC %sql
 # MAGIC
-# MAGIC drop schema nfleming.retail_ai cascade;
+# MAGIC drop catalog retail_consumer_goods cascade;
 
 # COMMAND ----------
 
