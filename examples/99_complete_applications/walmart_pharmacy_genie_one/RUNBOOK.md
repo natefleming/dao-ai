@@ -5,13 +5,16 @@ It is written to be followed top to bottom. For how it works internally, see [`R
 
 ## What this is
 
-Walmart's environment does not allow Anthropic (Claude) models. Databricks' built-in Genie One
-needs one, so it can't be used here. This assistant is the workaround: it answers the same
-pharmacy questions using an approved OpenAI-style model instead, and pulls its data from your three
-Genie spaces (Clinical Outcomes, Core Business Growth, Digital Accounts).
+Walmart's environment does not allow Anthropic (Claude) models. Databricks' built-in Genie One uses
+one to *answer* questions, so that native answering path can't run here. This assistant is the
+workaround: it answers the same pharmacy questions using an approved OpenAI-style model instead, and
+pulls its data from your three Genie spaces (Clinical Outcomes, Core Business Growth, Digital
+Accounts).
 
 You can run it two ways — as a **chat app** (a web page you open in the browser) and as an **MCP
-server** (a tool other systems can call). This guide covers both.
+server** (a tool other systems can call). This guide covers both. Note that Genie One can still act
+as a *consumer* of the MCP server (you add this assistant to a Genie One chat as a tool, Step 4);
+what doesn't run is Genie One generating answers with its own Anthropic model.
 
 ---
 
@@ -102,8 +105,10 @@ You can deploy both. They use different names, so they don't conflict.
 >   --param mcp_oauth_client_secret=<client-secret>
 > ```
 >
-> If you turn this on without the client id and secret, the deploy stops and tells you they are
-> required. That is expected.
+> Supply **both** the client id and secret. The deploy validates the **client id** — turning OBO on
+> without it stops the deploy with a clear error. The **secret is not checked at deploy time**, but
+> it is required for a confidential OAuth app: if you omit it, the deploy still succeeds and then the
+> user consent step fails later with an opaque OAuth error. So always pass both together.
 
 ---
 
@@ -168,10 +173,18 @@ databricks apps logs mcp-walmart-pharmacy-genie-one -p $P | grep obo_present
 
 ## Stop it or redeploy
 
-Stop and remove everything (app, experiment, and — in per-user mode — the connection):
+Tear down the **MCP server** (app, experiment, and — in per-user mode — the connection):
 
 ```bash
 dao-ai agent down --as-mcp -c walmart_pharmacy_genie_one.yaml -p $P $PARAMS
+```
+
+If you also deployed the **chat app** (Step 3, the `dao-ai agent up` without `--as-mcp`), it's a
+separate app (`walmart-pharmacy-genie-one`) and the command above does **not** remove it. Tear it
+down too:
+
+```bash
+dao-ai agent down -c walmart_pharmacy_genie_one.yaml -p $P $PARAMS
 ```
 
 To redeploy after a failed or stuck deploy, run `dao-ai agent down` first, then `dao-ai agent up`
