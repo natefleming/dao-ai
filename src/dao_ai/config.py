@@ -230,6 +230,78 @@ class SecretVariableModel(BaseModel, HasValue):
         return "{{secrets/" + f"{self.scope}/{self.secret}" + "}}"
 
 
+class UnityCatalogSecretModel(BaseModel, HasValue):
+    """A variable resolved from a Unity Catalog secret at runtime.
+
+    UC secrets are governed as first-class Unity Catalog securables with a
+    three-level name ``catalog.schema.key`` (READ SECRET privilege), unlike
+    legacy workspace secret scopes (see ``SecretVariableModel``). Reuses the
+    existing ``SchemaModel`` for the ``catalog.schema`` qualifier, matching the
+    ``VolumeModel`` / ``RegisteredModelModel`` pattern: provide ``schema`` +
+    a short ``name``, or omit ``schema`` and pass a fully-qualified
+    ``catalog.schema.key`` in ``name``.
+
+    NOTE: UC secrets cannot be injected as Databricks Apps ``valueFrom`` env
+    vars or Model Serving ``{{secrets/...}}`` templates (those are scope-based);
+    they resolve at runtime in-container via ``value_of()``, which requires the
+    resolving identity to hold READ SECRET (and, for OBO/U2M, the
+    ``unity-catalog`` OAuth scope).
+    """
+
+    model_config = ConfigDict(
+        frozen=True,
+        use_enum_values=True,
+        extra="forbid",
+        populate_by_name=True,
+    )
+    # ``SchemaModel`` is defined later in this module; forward-reference it and
+    # resolve via ``UnityCatalogSecretModel.model_rebuild()`` once it is in
+    # scope (see the rebuild call alongside ``BestOfNConfig.model_rebuild()``).
+    schema_model: Optional["SchemaModel"] = Field(
+        default=None,
+        alias="schema",
+        description=(
+            "Schema reference (catalog + schema) qualifying the secret. If "
+            "omitted, name must be a fully qualified 'catalog.schema.key'."
+        ),
+    )
+    name: str = Field(
+        description="Secret key (short) or fully qualified (catalog.schema.key).",
+    )
+    default_value: Optional[Any] = Field(
+        default=None,
+        description="Fallback value used when the secret cannot be retrieved.",
+    )
+
+    @model_validator(mode="after")
+    def validate_qualified(self) -> Self:
+        if self.schema_model is None and self.name.count(".") != 2:
+            raise ValueError(
+                "UnityCatalogSecretModel: 'name' must be a fully qualified "
+                "'catalog.schema.key' when 'schema' is omitted"
+            )
+        return self
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            return (
+                f"{self.schema_model.catalog_name}."
+                f"{self.schema_model.schema_name}.{self.name}"
+            )
+        return self.name
+
+    def as_value(self) -> Any:
+        logger.debug(f"Fetching UC secret: {self.full_name}")
+        from dao_ai.providers.databricks import DatabricksProvider
+
+        provider: DatabricksProvider = DatabricksProvider()
+        return provider.get_uc_secret(self.full_name, self.default_value)
+
+    def __str__(self) -> str:
+        return self.full_name
+
+
 class PrimitiveVariableModel(BaseModel, HasValue):
     """A variable holding a literal primitive value (string, int, float, or bool)."""
 
@@ -270,6 +342,7 @@ class CompositeVariableModel(BaseModel, HasValue):
     options: list[
         EnvironmentVariableModel
         | SecretVariableModel
+        | UnityCatalogSecretModel
         | PrimitiveVariableModel
         | str
         | int
@@ -308,12 +381,31 @@ AnyVariable: TypeAlias = (
     CompositeVariableModel
     | EnvironmentVariableModel
     | SecretVariableModel
+    | UnityCatalogSecretModel
     | PrimitiveVariableModel
     | str
     | int
     | float
     | bool
 )
+
+
+def is_uc_secret_variable(value: Any) -> bool:
+    """Return True if ``value`` is (or resolves first to) a UC secret.
+
+    Unlike legacy workspace-scope secrets, UC secrets cannot be injected as
+    Databricks Apps ``valueFrom`` env vars or Model Serving
+    ``{{secrets/...}}`` templates — they resolve at runtime via ``value_of()``.
+    Deploy paths use this to skip env-var injection (a UC secret stringifies to
+    its three-level name, which would otherwise be injected as a literal).
+    Unwraps a ``CompositeVariableModel`` to its first option, mirroring how the
+    injection paths pick a representative source.
+    """
+    if isinstance(value, UnityCatalogSecretModel):
+        return True
+    if isinstance(value, CompositeVariableModel) and value.options:
+        return is_uc_secret_variable(value.options[0])
+    return False
 
 
 APP_RESOURCE_DESCRIPTION_MAX_LENGTH: Final[int] = 200
@@ -1435,6 +1527,11 @@ LLMModel = InferenceEndpointModel
 # now that the class is in scope. Without this, instantiating BestOfNConfig
 # with a dict judge config would fail with a forward-reference error.
 BestOfNConfig.model_rebuild()
+
+# Resolve the forward reference UnityCatalogSecretModel.schema_model -> SchemaModel
+# now that SchemaModel is in scope (it is defined after the variable models so
+# that UnityCatalogSecretModel can be a member of the AnyVariable union above it).
+UnityCatalogSecretModel.model_rebuild()
 
 
 class AiSearchEndpointType(str, Enum):
