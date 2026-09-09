@@ -32,6 +32,13 @@
 # USE_CONNECTION + EXECUTE. It then appears under Catalog → Unity AI Gateway →
 # MCP servers; add the connection to a Genie One chat (one-time, in the UI).
 #
+# To enable OBO/U2M for the connection, add (all three together):
+#     --param on_behalf_of_user=true \
+#     --param mcp_oauth_client_id=<dedicated-oauth-app-client-id> \
+#     --param mcp_oauth_client_secret=<dedicated-oauth-app-client-secret>
+# Both credential params default to null (→ M2M / app-SP identity) when unset.
+# See RUNBOOK.md for the full VDI install, admin grants, and consume steps.
+#
 # NOTE on identity: the deployed MCP app forwards the caller's user token
 # (`x-forwarded-access-token`), so every tool here runs on-behalf-of-user
 # (`on_behalf_of_user: true`) — Genie queries and the system.ai MCP tools both
@@ -63,6 +70,27 @@ parameters:
   on_behalf_of_user:
     description: Run all tools + the app connection on-behalf-of-user (OBO/U2M). true/false.
     default: "false"
+
+  # --- MCP connection U2M credentials (dedicated custom OAuth app integration) -
+  # These broker the app.connection's on-behalf-of-user (U2M) authorization-code
+  # flow. Both default to null (empty) → the connection uses M2M / app-SP
+  # identity. To enable OBO end-to-end, set on_behalf_of_user=true AND supply
+  # both of these from a DEDICATED account-level custom OAuth app integration
+  # (the app's own oauth2_app_client_id CANNOT be used — see the connection
+  # block below and GAIA-435). `default: ""` (not omitted) keeps them optional:
+  # an unsupplied value renders to YAML null rather than a required parameter.
+  mcp_oauth_client_id:
+    description: >-
+      Client id of the DEDICATED account-level custom OAuth app integration that
+      brokers the connection's U2M flow. Leave unset for M2M (app-SP identity).
+      Required when on_behalf_of_user=true.
+    default: ""                             # renders to null when not provided
+  mcp_oauth_client_secret:
+    description: >-
+      Client secret of that dedicated custom OAuth app integration (confidential).
+      Leave unset for M2M. For production prefer a {secret: {...}} reference over
+      passing the secret on the command line.
+    default: ""                             # renders to null when not provided
 
   # --- Agent model (OpenAI-flavored Databricks Model Serving endpoint) --------
   llm:
@@ -407,10 +435,11 @@ app:
     # refresh token the connection stops working after ~1h.
     #
     # Driven by the same POC-wide toggle (default false → M2M). When it resolves
-    # true, U2M also needs a dedicated OAuth client — uncomment and supply these:
+    # true, U2M also needs a dedicated OAuth client — pass mcp_oauth_client_id /
+    # mcp_oauth_client_secret at deploy (both default to null → M2M when unset).
     on_behalf_of_user: ${var.on_behalf_of_user}
-    # oauth_client_id: ${var.mcp_oauth_client_id}
-    # oauth_client_secret: ${var.mcp_oauth_client_secret}   # {secret: {...}} ref preferred
+    oauth_client_id: ${var.mcp_oauth_client_id}
+    oauth_client_secret: ${var.mcp_oauth_client_secret}   # {secret: {...}} ref preferred in prod
 
 # =============================================================================
 # DATASETS  (dao-ai-native table provisioning — run by the workflow pipeline)

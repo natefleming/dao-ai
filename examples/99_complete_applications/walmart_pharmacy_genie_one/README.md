@@ -52,7 +52,9 @@ hierarchy. The metric-view YAML is in `metric_views/` (source repointed to
 | `clinical_space_id` | **required** | Genie space ID for the Clinical Outcome room |
 | `growth_space_id` | **required** | Genie space ID for the Core Business Growth room |
 | `digital_space_id` | **required** | Genie space ID for the Digital Account room |
-| `on_behalf_of_user` | `false` | Single toggle: run all Genie rooms + system.ai tools + the app connection on-behalf-of-user (OBO/U2M). `true` also needs `app.connection.oauth_client_id` for the connection's U2M flow |
+| `on_behalf_of_user` | `false` | Single toggle: run all Genie rooms + system.ai tools + the app connection on-behalf-of-user (OBO/U2M). `true` also needs `mcp_oauth_client_id` / `mcp_oauth_client_secret` for the connection's U2M flow |
+| `mcp_oauth_client_id` | `null` | Client id of the DEDICATED custom OAuth app integration that brokers the connection's U2M flow. Null → M2M (app-SP identity). Required when `on_behalf_of_user=true` |
+| `mcp_oauth_client_secret` | `null` | Client secret of that dedicated custom OAuth app integration. Null → M2M. Prefer a secret reference in production |
 | `llm` | `databricks-gpt-oss-120b` | OpenAI-flavored serving endpoint (the agent's brain) |
 | `microsoft_365_service` | `system.ai.microsoft_365` | UC MCP service securable |
 | `atlassian_service` | `system.ai.atlassian` | UC MCP service securable |
