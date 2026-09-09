@@ -44,6 +44,18 @@ def test_uc_secret_requires_qualified_name_without_schema() -> None:
 
 
 @pytest.mark.unit
+def test_uc_secret_rejects_dotted_name_with_schema() -> None:
+    """A dotted name + schema would build a malformed 5-part full_name."""
+    with pytest.raises(ValidationError):
+        UnityCatalogSecretModel.model_validate(
+            {
+                "schema": {"catalog_name": "main", "schema_name": "default"},
+                "name": "main.default.k",
+            }
+        )
+
+
+@pytest.mark.unit
 def test_uc_secret_alias_round_trip() -> None:
     """``schema`` alias must round-trip so dump/reload survives extra=forbid."""
     m = UnityCatalogSecretModel.model_validate(

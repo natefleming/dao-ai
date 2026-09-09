@@ -2050,6 +2050,17 @@ class DatabricksProvider(ServiceProvider):
                         schema_name=config.app.trace_location.schema_name,
                         table_prefix=table_prefix,
                     )
+
+                # Grant the endpoint's runtime SP READ SECRET on every UC secret
+                # the config references. UC secrets resolve at runtime (they are
+                # not injectable as env vars), so the serving endpoint's identity
+                # must hold READ SECRET or get_uc_secret falls back to None.
+                # Mirrors the Apps path in _deploy_app.
+                secret_full_names = _collect_uc_secret_full_names(config)
+                if secret_full_names:
+                    _grant_uc_secret_read_to_principal(
+                        self.w, sp_id, secret_full_names
+                    )
             except Exception as e:
                 logger.warning(
                     "Failed to grant trace-persistence privileges to Model Serving SP",

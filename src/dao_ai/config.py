@@ -280,6 +280,11 @@ class UnityCatalogSecretModel(BaseModel, HasValue):
                 "UnityCatalogSecretModel: 'name' must be a fully qualified "
                 "'catalog.schema.key' when 'schema' is omitted"
             )
+        if self.schema_model is not None and "." in self.name:
+            raise ValueError(
+                "UnityCatalogSecretModel: 'name' must be a bare secret key (no "
+                "dots) when 'schema' is provided; the schema already qualifies it"
+            )
         return self
 
     @property
