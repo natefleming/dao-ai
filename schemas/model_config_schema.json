@@ -325,6 +325,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -369,6 +372,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -463,6 +469,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -498,6 +507,9 @@
                   },
                   {
                     "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/UnityCatalogSecretModel"
                   },
                   {
                     "$ref": "#/$defs/PrimitiveVariableModel"
@@ -538,6 +550,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -570,6 +585,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -1049,6 +1067,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -1081,6 +1102,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -1117,6 +1141,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -1149,6 +1176,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -1473,6 +1503,9 @@
                   },
                   {
                     "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/UnityCatalogSecretModel"
                   },
                   {
                     "$ref": "#/$defs/PrimitiveVariableModel"
@@ -2377,6 +2410,9 @@
                 "$ref": "#/$defs/SecretVariableModel"
               },
               {
+                "$ref": "#/$defs/UnityCatalogSecretModel"
+              },
+              {
                 "$ref": "#/$defs/PrimitiveVariableModel"
               },
               {
@@ -2440,6 +2476,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -2472,6 +2511,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -2508,6 +2550,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -2540,6 +2585,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -2636,6 +2684,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -2668,6 +2719,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -2943,6 +2997,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -2975,6 +3032,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -3011,6 +3071,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -3043,6 +3106,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -3119,6 +3185,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -3151,6 +3220,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -3187,6 +3259,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -3219,6 +3294,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -3359,6 +3437,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -3391,6 +3472,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -3460,6 +3544,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -3492,6 +3579,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -3528,6 +3618,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -3560,6 +3653,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -4219,6 +4315,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -4251,6 +4350,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -4451,6 +4553,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -4483,6 +4588,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -4519,6 +4627,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -4551,6 +4662,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -5306,6 +5420,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -5338,6 +5455,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -5374,6 +5494,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -5406,6 +5529,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -5469,6 +5595,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -5501,6 +5630,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -6343,6 +6475,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -6375,6 +6510,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -6411,6 +6549,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -6443,6 +6584,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -6532,6 +6676,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -6564,6 +6711,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -6600,6 +6750,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -6632,6 +6785,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -7371,6 +7527,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -7403,6 +7562,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -7439,6 +7601,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -7471,6 +7636,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -7572,6 +7740,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -7605,6 +7776,9 @@
               },
               {
                 "$ref": "#/$defs/SecretVariableModel"
+              },
+              {
+                "$ref": "#/$defs/UnityCatalogSecretModel"
               },
               {
                 "$ref": "#/$defs/PrimitiveVariableModel"
@@ -7733,6 +7907,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -7800,6 +7977,9 @@
                   },
                   {
                     "$ref": "#/$defs/SecretVariableModel"
+                  },
+                  {
+                    "$ref": "#/$defs/UnityCatalogSecretModel"
                   },
                   {
                     "$ref": "#/$defs/PrimitiveVariableModel"
@@ -8174,6 +8354,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -8206,6 +8389,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -8242,6 +8428,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -8274,6 +8463,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -8327,6 +8519,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -8356,6 +8551,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -9186,6 +9384,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -9214,6 +9415,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -9432,6 +9636,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -9460,6 +9667,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -9552,6 +9762,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -10256,6 +10469,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -10288,6 +10504,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -10324,6 +10543,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -10356,6 +10578,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -10544,6 +10769,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -10572,6 +10800,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -10683,6 +10914,9 @@
                     "$ref": "#/$defs/SecretVariableModel"
                   },
                   {
+                    "$ref": "#/$defs/UnityCatalogSecretModel"
+                  },
+                  {
                     "$ref": "#/$defs/PrimitiveVariableModel"
                   },
                   {
@@ -10782,6 +11016,45 @@
       "title": "UnityCatalogFunctionSqlTestModel",
       "type": "object"
     },
+    "UnityCatalogSecretModel": {
+      "additionalProperties": false,
+      "description": "A variable resolved from a Unity Catalog secret at runtime.\n\nUC secrets are governed as first-class Unity Catalog securables with a\nthree-level name ``catalog.schema.key`` (READ SECRET privilege), unlike\nlegacy workspace secret scopes (see ``SecretVariableModel``). Reuses the\nexisting ``SchemaModel`` for the ``catalog.schema`` qualifier, matching the\n``VolumeModel`` / ``RegisteredModelModel`` pattern: provide ``schema`` +\na short ``name``, or omit ``schema`` and pass a fully-qualified\n``catalog.schema.key`` in ``name``.\n\nNOTE: UC secrets cannot be injected as Databricks Apps ``valueFrom`` env\nvars or Model Serving ``{{secrets/...}}`` templates (those are scope-based);\nthey resolve at runtime in-container via ``value_of()``, which requires the\nresolving identity to hold READ SECRET (and, for OBO/U2M, the\n``unity-catalog`` OAuth scope).",
+      "properties": {
+        "schema": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SchemaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Schema reference (catalog + schema) qualifying the secret. If omitted, name must be a fully qualified 'catalog.schema.key'."
+        },
+        "name": {
+          "description": "Secret key (short) or fully qualified (catalog.schema.key).",
+          "title": "Name",
+          "type": "string"
+        },
+        "default_value": {
+          "anyOf": [
+            {},
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Fallback value used when the secret cannot be retrieved.",
+          "title": "Default Value"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "UnityCatalogSecretModel",
+      "type": "object"
+    },
     "VerifierModel": {
       "additionalProperties": false,
       "description": "Validate results against user constraints with structured feedback.\n\nUse fast models (GPT-3.5, Haiku, Llama 3 8B) to minimize latency (~50-100ms).\nSkipped for 'standard' mode when auto_bypass=true in router config.\nReturns structured feedback for intelligent retry, not blind retry.\n\nExample:\n    ```yaml\n    retriever:\n      instructed:\n        columns:\n          - name: brand_name\n            type: string\n        verifier:\n          model: *fast_llm\n          on_failure: warn_and_retry\n          max_retries: 1\n    ```",
@@ -10860,6 +11133,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -10892,6 +11168,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -10928,6 +11207,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -10960,6 +11242,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -11082,6 +11367,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -11114,6 +11402,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -11150,6 +11441,9 @@
               "$ref": "#/$defs/SecretVariableModel"
             },
             {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
               "$ref": "#/$defs/PrimitiveVariableModel"
             },
             {
@@ -11182,6 +11476,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -11243,6 +11540,9 @@
             },
             {
               "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
             },
             {
               "$ref": "#/$defs/PrimitiveVariableModel"
@@ -11324,6 +11624,9 @@
           },
           {
             "$ref": "#/$defs/SecretVariableModel"
+          },
+          {
+            "$ref": "#/$defs/UnityCatalogSecretModel"
           },
           {
             "$ref": "#/$defs/PrimitiveVariableModel"

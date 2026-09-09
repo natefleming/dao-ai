@@ -71,6 +71,7 @@ from dao_ai.config import (
     VectorStoreModel,
     VolumeModel,
     WarehouseModel,
+    is_uc_secret_variable,
     value_of,
 )
 
@@ -1829,6 +1830,19 @@ def _extract_env_vars_from_config(config: AppConfig) -> list[dict[str, str]]:
 
     for var_name, var_value in environment_vars.items():
         env_entry: dict[str, str] = {"name": var_name}
+
+        # Unity Catalog secrets cannot be injected as Databricks Apps
+        # ``valueFrom`` or Model Serving ``{{secrets/...}}`` references (those
+        # are workspace-scope based). Skip injection; a UnityCatalogSecretModel
+        # resolves at runtime in-container via ``value_of()``, which requires
+        # the app/endpoint identity to hold READ SECRET on the UC secret.
+        if is_uc_secret_variable(var_value):
+            logger.info(
+                f"Skipping environment variable {var_name} - Unity Catalog "
+                f"secret resolves at runtime via UC READ SECRET and is not "
+                f"injectable as a Databricks Apps env var"
+            )
+            continue
 
         # Determine the type of the variable and create appropriate entry
         resolved_type = _resolve_variable_type(var_value)

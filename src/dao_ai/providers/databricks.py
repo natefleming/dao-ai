@@ -1135,6 +1135,77 @@ def _grant_uc_trace_table_permissions_to_principal(
     )
 
 
+def _collect_uc_secret_full_names(config: "AppConfig") -> list[str]:
+    """Collect the three-level names of every UC secret referenced in ``config``.
+
+    Walks the parsed config tree (nested models, dicts, lists) and returns the
+    de-duplicated ``catalog.schema.key`` name of each ``UnityCatalogSecretModel``,
+    including ones nested inside a ``CompositeVariableModel``'s options. Used to
+    grant the deployment's runtime identity READ SECRET on each at deploy time.
+    """
+    from pydantic import BaseModel
+
+    from dao_ai.config import UnityCatalogSecretModel
+
+    found: dict[str, None] = {}  # insertion-ordered de-dup
+    seen: set[int] = set()
+
+    def _walk(obj: Any) -> None:
+        if isinstance(obj, UnityCatalogSecretModel):
+            found.setdefault(obj.full_name, None)
+            return
+        if isinstance(obj, BaseModel):
+            if id(obj) in seen:
+                return
+            seen.add(id(obj))
+            for field_name in type(obj).model_fields:
+                _walk(getattr(obj, field_name, None))
+        elif isinstance(obj, dict):
+            for v in obj.values():
+                _walk(v)
+        elif isinstance(obj, (list, tuple, set)):
+            for v in obj:
+                _walk(v)
+
+    _walk(config)
+    return list(found)
+
+
+def _grant_uc_secret_read_to_principal(
+    w: "WorkspaceClient", principal: str, full_names: list[str]
+) -> None:
+    """Grant READ SECRET on each UC secret to ``principal`` (best-effort).
+
+    Mirrors ``_grant_uc_trace_table_permissions_to_principal``: the typed
+    ``grants.update()`` mis-serializes the securable enum on some SDK versions
+    (and ``SecurableType`` has no ``SECRET`` member yet), so call the raw REST
+    permissions endpoint directly with the lowercase securable string
+    ``secret`` and the ``READ_SECRET`` privilege. Failures (deployer lacks GRANT
+    rights) are logged and swallowed so the deploy still completes.
+    """
+    for full_name in full_names:
+        try:
+            w.api_client.do(
+                "PATCH",
+                f"/api/2.1/unity-catalog/permissions/secret/{full_name}",
+                body={"changes": [{"principal": principal, "add": ["READ_SECRET"]}]},
+            )
+            logger.debug(
+                "Granted READ SECRET on UC secret",
+                principal=principal,
+                full_name=full_name,
+            )
+        except Exception as e:
+            logger.warning(
+                "Failed to grant READ SECRET on UC secret — verify the calling "
+                "identity holds MANAGE on the secret (or its schema/catalog), or "
+                "grant READ SECRET to the runtime identity manually",
+                principal=principal,
+                full_name=full_name,
+                error=str(e),
+            )
+
+
 def _otel_table_names(
     catalog_name: str, schema_name: str, table_prefix: str
 ) -> list[str]:
@@ -1420,6 +1491,36 @@ class DatabricksProvider(ServiceProvider):
                 secret_key=secret_key,
                 secret_scope=secret_scope,
                 error=str(e),
+            )
+
+        return default_value
+
+    def get_uc_secret(
+        self, full_name: str, default_value: str | None = None
+    ) -> str:
+        """Read a Unity Catalog secret's plaintext value.
+
+        ``full_name`` is the three-level UC name ``catalog.schema.key``. The
+        value is returned already decoded in ``effective_value`` (no base64
+        step) and is never logged. ``effective_value`` is populated only when
+        ``include_value=True`` and the caller holds READ SECRET; otherwise it is
+        ``None`` and we fall back to ``default_value``.
+
+        Requires ``include_value`` on the typed ``secrets_uc.get_secret``, added
+        in databricks-sdk 0.126.0 (pinned floor). Verified live on FEVM.
+        """
+        try:
+            secret = self.w.secrets_uc.get_secret(full_name, include_value=True)
+            logger.trace("Retrieved UC secret", full_name=full_name)
+            if secret.effective_value is not None:
+                return secret.effective_value
+        except NotFound:
+            logger.warning(
+                "UC secret not found, using default value", full_name=full_name
+            )
+        except Exception as e:
+            logger.error(
+                "Error retrieving UC secret", full_name=full_name, error=str(e)
             )
 
         return default_value
@@ -1788,10 +1889,24 @@ class DatabricksProvider(ServiceProvider):
         # sees Pydantic-model values and silently drops them; the ensuing
         # empty ``DATABRICKS_CLIENT_ID/SECRET`` at runtime was one of the
         # observations behind the "stripped by platform" claim in 1b4290c.
-        environment_vars: dict[str, str] = {
-            k: str(v) if v is not None else ""
-            for k, v in (config.app.environment_vars or {}).items()
-        }
+        #
+        # UC secrets are the exception: they have no Model Serving template
+        # form (``__str__`` is the three-level name), so injecting them would
+        # set the literal name as the value. Skip them — they resolve at
+        # runtime via ``value_of()`` + UC READ SECRET.
+        from dao_ai.config import is_uc_secret_variable
+
+        environment_vars: dict[str, str] = {}
+        for k, v in (config.app.environment_vars or {}).items():
+            if is_uc_secret_variable(v):
+                logger.info(
+                    "Skipping Model Serving env var — Unity Catalog secret "
+                    "resolves at runtime via UC READ SECRET, not injectable "
+                    "as a {{secrets/...}} template",
+                    env_var=k,
+                )
+                continue
+            environment_vars[k] = str(v) if v is not None else ""
         workload_size: str = config.app.serving_workload_size()
         tags: dict[str, str] = config.app.tags.copy() if config.app.tags else {}
 
@@ -1934,6 +2049,17 @@ class DatabricksProvider(ServiceProvider):
                         catalog_name=config.app.trace_location.catalog_name,
                         schema_name=config.app.trace_location.schema_name,
                         table_prefix=table_prefix,
+                    )
+
+                # Grant the endpoint's runtime SP READ SECRET on every UC secret
+                # the config references. UC secrets resolve at runtime (they are
+                # not injectable as env vars), so the serving endpoint's identity
+                # must hold READ SECRET or get_uc_secret falls back to None.
+                # Mirrors the Apps path in _deploy_app.
+                secret_full_names = _collect_uc_secret_full_names(config)
+                if secret_full_names:
+                    _grant_uc_secret_read_to_principal(
+                        self.w, sp_id, secret_full_names
                     )
             except Exception as e:
                 logger.warning(
@@ -2869,6 +2995,16 @@ class DatabricksProvider(ServiceProvider):
                             catalog_name=config.app.trace_location.catalog_name,
                             schema_name=config.app.trace_location.schema_name,
                             table_prefix=table_prefix,
+                        )
+
+                    # Grant the App SP READ SECRET on every UC secret the
+                    # config references. UC secrets resolve at runtime (they
+                    # can't be injected as env vars), so the App's runtime
+                    # identity must hold READ SECRET. Best-effort + graceful.
+                    secret_full_names = _collect_uc_secret_full_names(config)
+                    if secret_full_names:
+                        _grant_uc_secret_read_to_principal(
+                            self.w, str(sp_id), secret_full_names
                         )
             except Exception as e:
                 logger.warning(

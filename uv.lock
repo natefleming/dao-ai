@@ -1007,7 +1007,7 @@ requires-dist = [
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=16.0.0" },
     { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.20.0" },
     { name = "databricks-mcp", specifier = ">=0.9.0" },
-    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.108.0" },
+    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.126.0" },
     { name = "ddgs", marker = "extra == 'search'", specifier = ">=9.10.0" },
     { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.5.7" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.115.0" },
@@ -1243,7 +1243,7 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.122.0"
+version = "0.137.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
@@ -1251,9 +1251,9 @@ dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/f8/7d/e3e34005d835c88df348187414837e34981d8eaec29bf91abd36a6f5e39f/databricks_sdk-0.122.0.tar.gz", hash = "sha256:eb11be13f0c02fc4ffc6e2672ad47478ce26ac4b310bd26916af8ba56e374e98", size = 1024752, upload-time = "2026-07-21T09:24:15.952Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/31/b6/025f1379547e10182657145ad13ee6b85b418b300d7bdc456583085d1471/databricks_sdk-0.137.0.tar.gz", hash = "sha256:33c995a36ccfd0e59ae16abe08eb129bf53218647e1549e8b9a6f4abbd12bf68", size = 1096729, upload-time = "2026-09-09T04:34:28.647Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/28/95/f17887b43ac4dcc09079e5fb0e93374762d85d593c8e5114dbc6f82b6c52/databricks_sdk-0.122.0-py3-none-any.whl", hash = "sha256:7d998ec47f580be6be1cfe066be78038054767575b7437af5e4f76b67dde49c2", size = 969097, upload-time = "2026-07-21T09:24:14.32Z" },
+    { url = "https://files.pythonhosted.org/packages/63/08/235bd7946f9ff52df3690bb42e6658135cd798fb92c3de3b5010779b2978/databricks_sdk-0.137.0-py3-none-any.whl", hash = "sha256:03e89202f9f4bfd6004f76284c9e54fb14533566d8041f6ee7484c42a1a412e8", size = 1041303, upload-time = "2026-09-09T04:34:26.903Z" },
 ]
 
 [package.optional-dependencies]
