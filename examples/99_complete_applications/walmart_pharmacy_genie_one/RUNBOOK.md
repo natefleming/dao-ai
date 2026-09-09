@@ -1,11 +1,11 @@
 # Setup guide — Walmart Pharmacy assistant
 
-This guide shows how to install, deploy, and use the Walmart Pharmacy assistant from your VDI.
+This guide shows how to install, deploy, and use the Walmart Pharmacy assistant.
 It is written to be followed top to bottom. For how it works internally, see [`README.md`](./README.md).
 
 ## What this is
 
-Walmart's environment does not allow Anthropic (Claude) models. Databricks' built-in Genie One uses
+Walmart's environment does not allow certain provider models. Databricks' built-in Genie One uses
 one to *answer* questions, so that native answering path can't run here. This assistant is the
 workaround: it answers the same pharmacy questions using an approved OpenAI-style model instead, and
 pulls its data from your three Genie spaces (Clinical Outcomes, Core Business Growth, Digital
@@ -14,7 +14,7 @@ Accounts).
 You can run it two ways — as a **chat app** (a web page you open in the browser) and as an **MCP
 server** (a tool other systems can call). This guide covers both. Note that Genie One can still act
 as a *consumer* of the MCP server (you add this assistant to a Genie One chat as a tool, Step 4);
-what doesn't run is Genie One generating answers with its own Anthropic model.
+what doesn't run is Genie One generating answers with an unsupported model.
 
 ---
 
@@ -27,7 +27,7 @@ Ask your Databricks administrator to confirm these are ready:
 - The three Genie spaces exist, and you have their IDs.
 - You have a catalog and schema you can write to.
 
-On your VDI you need Python 3.12 or newer and the Databricks CLI.
+On your machine you need Python 3.12 or newer and the Databricks CLI.
 
 The administrator also needs to grant access. See [Access the administrator must grant](#access-the-administrator-must-grant) at the end.
 
@@ -35,7 +35,7 @@ The administrator also needs to grant access. See [Access the administrator must
 
 ## Step 1 — Install
 
-Run these once in your VDI terminal. Replace `<walmart-workspace-host>` with your workspace URL.
+Run these once in your terminal. Replace `<walmart-workspace-host>` with your workspace URL.
 
 ```bash
 databricks auth login --host https://<walmart-workspace-host> --profile walmart
@@ -66,7 +66,7 @@ PARAMS="--param catalog=$CAT --param schema=$SCH --param llm=$LLM \
 > that endpoint by name. Some workspaces instead require the UC model-service address — in that case
 > use `LLM=system.ai.gpt-oss-120b` (any approved OpenAI-style model). If a deploy later errors with
 > *"…is no longer available. Use Unity Catalog model services (v3)"*, switch to the `system.ai.…`
-> form. Either way it must be a non-Anthropic model.
+> form. 
 
 Check that the config reads correctly (this does not deploy anything):
 
@@ -199,7 +199,7 @@ again. A clean teardown avoids leftover state from a previous attempt.
 | `--with-connection requires --as-mcp` | Add `--as-mcp` to the command. |
 | Deploy stops asking for a client id/secret | You turned on the per-user option. Add `mcp_oauth_client_id` and `mcp_oauth_client_secret`, or remove `on_behalf_of_user=true`. |
 | Microsoft 365 / Google / Atlassian tools are missing | Each person must connect their account once, from the workspace, before those tools appear. |
-| "Model not found" or a model error | The `LLM` value must be an approved OpenAI-style endpoint, not an Anthropic model. |
+| "Model not found" or a model error | The `LLM` value must be an approved OpenAI-style endpoint. |
 | Model error: "'databricks-…' is no longer available. Use Unity Catalog model services (v3)." | This workspace's AI Gateway wants the UC model-service address. Set `--param llm=system.ai.<model>` (e.g. `system.ai.gpt-oss-120b`) instead of the `databricks-<model>` name. |
 | Consent screen: "OAuth application with client_id '…' not available in Databricks account '…'." | The OAuth app is in the wrong account. It must be created in the same account that owns the workspace you deployed into (see the admin section). |
 | Deploy fails: "Unexpectedly failed to update app's OAuth scopes. Please try again later." | Changing the model or scopes on an already-running app can fail the in-place scope update. Run `dao-ai agent down …` then `dao-ai agent up …` for a clean redeploy. |
