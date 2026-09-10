@@ -27,26 +27,9 @@
 
 # COMMAND ----------
 
-import glob
-import os
-
-from packaging.version import Version
-
-
-# Prefer a locally built wheel (repo root `dist/`, three levels up from this
-# example dir) so a developer testing working-tree changes gets them; otherwise
-# fall back to the published package. `[all]` pulls every optional feature extra
-# (MCP client, langchain, openai, ...) this notebook uses.
-def _wheel_version(wheel: str) -> Version:
-    return Version(os.path.basename(wheel).split("-")[1])
-
-
-_wheels: list[str] = sorted(
-    glob.glob("../../../dist/dao_ai-*.whl"), key=_wheel_version, reverse=True
-)
-_dao_ai_dep: str = (_wheels[0] if _wheels else "dao-ai") + "[all]"
-
-# MAGIC %uv pip install --quiet '{_dao_ai_dep}'
+# `[all]` pulls every optional feature extra this notebook uses (MCP client,
+# langchain, openai, ...). `%restart_python` reloads Python so the install takes.
+# MAGIC %pip install --quiet 'dao-ai[all]'
 # MAGIC %restart_python
 
 # COMMAND ----------
@@ -210,6 +193,8 @@ config.display_graph()
 
 # COMMAND ----------
 
+from typing import Any
+
 from mlflow.pyfunc import ResponsesAgent
 from mlflow.types.responses import ResponsesAgentRequest, ResponsesAgentStreamEvent
 
@@ -224,12 +209,18 @@ request: ResponsesAgentRequest = ResponsesAgentRequest(
 )
 
 # Stream the answer as it's generated. Text arrives as `response.output_text.delta`
-# events; other event types (reasoning, tool steps) are part of the trace.
+# events; other event types (reasoning, tool steps) are part of the trace. The
+# final event carries this run's MLflow trace id in its custom outputs — capture
+# it here so the next cell can show the trace without re-running the agent.
 print(f"Q: {question}\n\nA: ", end="", flush=True)
+trace_id: str | None = None
 event: ResponsesAgentStreamEvent
 for event in agent.predict_stream(request):
     if event.type == "response.output_text.delta":
         print(event.delta, end="", flush=True)
+    custom_outputs: dict[str, Any] | None = getattr(event, "custom_outputs", None)
+    if custom_outputs and custom_outputs.get("trace_id"):
+        trace_id = custom_outputs["trace_id"]
 print()
 
 # COMMAND ----------
@@ -242,11 +233,8 @@ print()
 
 # COMMAND ----------
 
-from typing import Any
-
-# The complete response also carries the trace id in its custom outputs.
-response: Any = agent.predict(request)
-trace_id: str | None = response.custom_outputs.get("trace_id") if response.custom_outputs else None
+# `trace_id` was captured from the streamed answer above (falling back to the
+# last trace MLflow recorded). No second agent call — and no second Genie query.
 trace_id = trace_id or mlflow.get_last_active_trace_id()
 
 print(f"Trace id: {trace_id}")
@@ -300,7 +288,9 @@ if deploy_mode == "model_serving":
 
     w: WorkspaceClient = WorkspaceClient()
     host: str = w.config.host.rstrip("/")
-    token: str = w.config.authenticate()["Authorization"].removeprefix("Bearer ").strip()
+    # `authenticate()` can return None / omit the header; guard like the rest of
+    # the codebase before stripping the "Bearer " prefix.
+    token: str = (w.config.authenticate() or {}).get("Authorization", "").removeprefix("Bearer ").strip()
 
     # Databricks serving endpoints speak the OpenAI Responses API.
     client: OpenAI = OpenAI(base_url=f"{host}/serving-endpoints", api_key=token)
@@ -335,7 +325,9 @@ else:
 # COMMAND ----------
 
 if deploy_mode == "apps" and as_mcp:
+    from databricks_langchain import ChatDatabricks
     from langchain.agents import create_agent
+    from langchain_core.language_models import BaseChatModel
     from langchain_core.tools import BaseTool
 
     from dao_ai.config import DatabricksAppModel, McpFunctionModel, app_name_for
@@ -349,9 +341,11 @@ if deploy_mode == "apps" and as_mcp:
     mcp_tools: list[BaseTool] = await acreate_mcp_tools(mcp_function)
     print(f"Tools advertised: {[tool.name for tool in mcp_tools]}")
 
-    # A small consumer agent that calls the live MCP server, using the same model
-    # the assistant runs on. Streaming `stream_mode='messages'` yields token deltas.
-    consumer = create_agent(model=config.as_chat_model(), tools=mcp_tools)
+    # A small *client* agent that calls the live MCP server. Its own reasoning
+    # model is just for this demo (independent of the deployed assistant) — here
+    # Claude Sonnet 5 via ChatDatabricks. `stream_mode='messages'` yields tokens.
+    consumer_model: BaseChatModel = ChatDatabricks(endpoint="databricks-claude-sonnet-5")
+    consumer = create_agent(model=consumer_model, tools=mcp_tools)
 
     live_question: str = "How many active digital pharmacy accounts do we have?"
     print(f"\nQ: {live_question}\n\nA: ", end="", flush=True)
