@@ -68,6 +68,13 @@ def _stamp_extras_resolvable(mock_config: MagicMock) -> MagicMock:
     sp = getattr(mock_config.app, "service_principal", None)
     if sp is None or isinstance(sp, MagicMock):
         mock_config.app.service_principal = None
+    # ``generate_app_yaml`` reads ``config.app.ui`` (Optional[AppUIModel],
+    # default None) when emitting chat-UI env vars. ``spec=AppModel`` does not
+    # expose pydantic fields, so stamp it explicitly unless a test set a real
+    # value. ``getattr`` tolerates spec-restricted mocks.
+    ui = getattr(mock_config.app, "ui", None)
+    if ui is None or isinstance(ui, MagicMock):
+        mock_config.app.ui = None
     return mock_config
 
 

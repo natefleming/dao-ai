@@ -15,9 +15,10 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from dao_ai.config import AppConfig
-from dao_ai.config_vars import WorkspaceVariableError
+from dao_ai.config_vars import ConfigVariableError, WorkspaceVariableError
 
 EXAMPLES: Path = Path(__file__).parents[2] / "examples"
 
@@ -46,19 +47,47 @@ def _example_configs() -> list[Path]:
     )
 
 
+def _load_example(config_path: Path) -> AppConfig:
+    """Load an example config offline, tolerating the two legitimate reasons a
+    shipped example can't be parsed with no caller input.
+
+    - ``WorkspaceVariableError``: the example uses ``${workspace.*}`` (e.g.
+      current_user), resolved at load time against a live WorkspaceClient
+      regardless of ``initialize=False``. Skip — the parse reached variable
+      resolution, which is as far as an offline check can go.
+    - ``ConfigVariableError`` with only *missing required* params: an example
+      may legitimately require caller-supplied identifiers (catalog, schema,
+      Genie space IDs). That is not an authoring error — fill the
+      declared-but-unset params with placeholders and re-validate, so the schema
+      is still fully exercised offline rather than skipped. An ``undeclared``
+      reference (a ``${var.X}`` nobody declared) IS a real authoring bug and
+      still fails. If the ``"placeholder"`` string can't satisfy a typed or
+      format-validated required field (a numeric id, an enum, an N-part UC name),
+      the re-validate raises ``ValidationError`` — skip, since a valid value
+      can't be synthesized offline; the parse still reached schema validation.
+    """
+    try:
+        return AppConfig.from_file(config_path, initialize=False)
+    except WorkspaceVariableError as exc:
+        pytest.skip(f"needs workspace auth: {exc}")
+    except ConfigVariableError as exc:
+        if exc.undeclared:
+            raise
+        placeholders = {name: "placeholder" for name in exc.missing_required}
+        try:
+            return AppConfig.from_file(
+                config_path, params=placeholders, initialize=False
+            )
+        except ValidationError as verr:
+            pytest.skip(f"required param needs a real value: {verr}")
+
+
 @pytest.mark.unit
 @pytest.mark.parametrize(
     "config_path", _example_configs(), ids=lambda p: p.relative_to(EXAMPLES).as_posix()
 )
 def test_every_shipped_example_validates(config_path: Path) -> None:
-    try:
-        AppConfig.from_file(config_path, initialize=False)
-    except WorkspaceVariableError as exc:
-        # A few examples use ``${workspace.*}`` (e.g. current_user), which is
-        # resolved at load time and needs a live WorkspaceClient regardless of
-        # ``initialize=False``. Skip rather than fail so the suite stays offline
-        # — the parse itself got far enough to reach variable resolution.
-        pytest.skip(f"needs workspace auth: {exc}")
+    _load_example(config_path)
 
 
 @pytest.mark.unit
@@ -74,10 +103,7 @@ def test_no_example_provisions_a_schema_in_the_system_catalog(
     fails or over-privileges. To qualify a UC-securable model name, the schema
     belongs *inline* on the model, which is not provisioned. (PR #294 review:
     the AI Gateway example declared ``system.ai`` here.)"""
-    try:
-        config = AppConfig.from_file(config_path, initialize=False)
-    except WorkspaceVariableError as exc:
-        pytest.skip(f"needs workspace auth: {exc}")
+    config = _load_example(config_path)
 
     offenders = [
         key
