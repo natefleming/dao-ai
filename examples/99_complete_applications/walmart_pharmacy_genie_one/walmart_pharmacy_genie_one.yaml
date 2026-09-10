@@ -363,6 +363,14 @@ agents:
 # =============================================================================
 app:
   name: walmart_pharmacy_genie_one            # Deployed as App `mcp-walmart-pharmacy-genie-one`.
+  # Unity Catalog registered model the agent is logged to. Only needed for a
+  # Model Serving deploy (the primary path here is an MCP server on Apps, which
+  # doesn't register a model); dao-ai raises "registered_model is required" if a
+  # Model Serving deploy is attempted without it. Reuses the ${catalog}.${schema}
+  # anchor, so no extra parameters. endpoint_name defaults to app.name.
+  registered_model:
+    schema: *poc_schema
+    name: walmart_pharmacy_genie_one
   # Short app description — the Databricks Apps API caps this at 500 chars.
   description: >-
     Walmart Health & Wellness Pharmacy analytics agent, exposed as an MCP tool for
