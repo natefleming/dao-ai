@@ -15,6 +15,7 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from pydantic import ValidationError
 
 from dao_ai.config import AppConfig
 from dao_ai.config_vars import ConfigVariableError, WorkspaceVariableError
@@ -60,7 +61,10 @@ def _load_example(config_path: Path) -> AppConfig:
       declared-but-unset params with placeholders and re-validate, so the schema
       is still fully exercised offline rather than skipped. An ``undeclared``
       reference (a ``${var.X}`` nobody declared) IS a real authoring bug and
-      still fails.
+      still fails. If the ``"placeholder"`` string can't satisfy a typed or
+      format-validated required field (a numeric id, an enum, an N-part UC name),
+      the re-validate raises ``ValidationError`` — skip, since a valid value
+      can't be synthesized offline; the parse still reached schema validation.
     """
     try:
         return AppConfig.from_file(config_path, initialize=False)
@@ -70,7 +74,12 @@ def _load_example(config_path: Path) -> AppConfig:
         if exc.undeclared:
             raise
         placeholders = {name: "placeholder" for name in exc.missing_required}
-        return AppConfig.from_file(config_path, params=placeholders, initialize=False)
+        try:
+            return AppConfig.from_file(
+                config_path, params=placeholders, initialize=False
+            )
+        except ValidationError as verr:
+            pytest.skip(f"required param needs a real value: {verr}")
 
 
 @pytest.mark.unit
