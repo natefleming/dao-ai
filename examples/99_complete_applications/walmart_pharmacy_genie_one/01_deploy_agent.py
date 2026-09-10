@@ -42,10 +42,15 @@
 
 # COMMAND ----------
 
+import importlib.metadata
 import os
 
 # Must be set before `dao_ai.config` is imported anywhere below.
 os.environ["PSYCOPG_IMPL"] = "python"
+
+# Confirm which dao-ai the install above landed (read from package metadata, so
+# this doesn't import dao_ai before the guard above takes effect).
+print(f"dao-ai version: {importlib.metadata.version('dao-ai')}")
 
 # COMMAND ----------
 
