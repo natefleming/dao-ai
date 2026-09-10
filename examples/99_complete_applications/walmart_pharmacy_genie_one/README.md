@@ -10,6 +10,8 @@ Walmart cannot use partner-provider (Anthropic/Claude) models, so the agent's re
 is a Databricks Model Serving endpoint serving an **OpenAI-flavored** model (`llm` parameter,
 default `databricks-gpt-oss-120b`), routed through the Unity AI Gateway (`use_ai_gateway: true`).
 
+> **Prefer a notebook?** [`01_deploy_agent.py`](./01_deploy_agent.py) walks through the whole thing interactively — every parameter is a widget, you pick Apps (MCP) or Model Serving as the target, and it streams a live inference with MLflow traces.
+
 ## Architecture
 
 ```

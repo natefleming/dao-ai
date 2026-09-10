@@ -3,6 +3,8 @@
 This guide shows how to install, deploy, and use the Walmart Pharmacy assistant.
 It is written to be followed top to bottom. For how it works internally, see [`README.md`](./README.md).
 
+> **Prefer to click through it in Databricks?** [`01_deploy_agent.py`](./01_deploy_agent.py) does the deploy and a live test inference from a notebook — fill in the widgets, choose Apps (MCP) or Model Serving, and run it top to bottom instead of using the terminal below.
+
 ## What this is
 
 Walmart's environment does not allow certain provider models. Databricks' built-in Genie One uses
