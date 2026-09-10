@@ -29,7 +29,7 @@
 
 # `[all]` pulls every optional feature extra this notebook uses (MCP client,
 # langchain, openai, ...). `%restart_python` reloads Python so the install takes.
-# MAGIC %pip install --quiet 'dao-ai[all]'
+# MAGIC %uv pip install --quiet 'dao-ai[all]'
 # MAGIC %restart_python
 
 # COMMAND ----------
