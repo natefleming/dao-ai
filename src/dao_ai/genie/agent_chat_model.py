@@ -15,6 +15,15 @@ the agent's own response stream. A model node, by contrast, streams
 ``AIMessageChunk``s to the outer stream (``stream_mode="messages"``) and is
 routable by a supervisor like any other sub-agent.
 
+Content and reasoning
+---------------------
+Message content is a list of LangChain standard content blocks. Genie's
+``reasoning`` items become ``{"type": "reasoning", "reasoning": "..."}``
+blocks; SQL, result tables and the narrative become ``{"type": "text"}``
+blocks, in wire order. ``AIMessage.text`` is the answer without reasoning,
+and :func:`dao_ai.models._split_content` routes the reasoning blocks to the
+Responses ``reasoning`` item (``response.reasoning_summary_text.delta``).
+
 Statelessness and multi-turn
 -----------------------------
 ``BaseChatModel`` has no access to graph state or ``ToolRuntime``. The Genie
@@ -153,41 +162,59 @@ def _format_function_call_output(item: dict[str, Any]) -> str:
     return str(output) if output is not None else ""
 
 
-def _format_message_item(item: dict[str, Any]) -> str:
-    """Concatenate ``output_text`` chunks from a ``message`` item."""
+def _join_content_text(item: dict[str, Any], content_type: str) -> str:
+    """Concatenate the ``text`` of an item's ``content`` parts of one type."""
     parts: list[str] = []
     for content in item.get("content") or []:
         if not isinstance(content, dict):
             continue
-        if content.get("type") == "output_text":
+        if content.get("type") == content_type:
             text: Optional[str] = content.get("text")
             if text:
                 parts.append(text)
     return "\n".join(parts)
 
 
+def _format_message_item(item: dict[str, Any]) -> str:
+    """Concatenate ``output_text`` chunks from a ``message`` item."""
+    return _join_content_text(item, "output_text")
+
+
+def _format_reasoning_item(item: dict[str, Any]) -> str:
+    """Concatenate ``reasoning_text`` chunks from a ``reasoning`` item."""
+    return _join_content_text(item, "reasoning_text")
+
+
 class _StreamState:
-    """Accumulates SSE events into ordered content segments + terminal status.
+    """Accumulates SSE events into ordered content blocks + terminal status.
 
     Feeds both the sync (``_generate``) and async (``_astream``) code paths so
-    the event → text mapping lives in one place. Each accepted event that
-    produces visible text returns that text (with a trailing separator) from
-    :meth:`handle` so a streaming caller can emit it as a chunk; the same text
-    is also appended to :attr:`segments` for the aggregated final message.
+    the event → content mapping lives in one place. Each accepted item becomes
+    one LangChain standard content block — ``{"type": "reasoning", ...}`` for
+    Genie's ``reasoning`` items, ``{"type": "text", ...}`` for SQL, result
+    tables and the narrative — returned from :meth:`handle` so a streaming
+    caller can emit it as a chunk, and appended to :attr:`blocks` for the
+    aggregated final message. Streamed and invoked content are therefore
+    identical.
+
+    Items are taken from ``response.output_item.done`` only. The API sends no
+    token deltas: each item's content arrives whole (``output_item.added``
+    already carries a completed reasoning item, ``done`` repeats it), so the
+    stream is item-granular — one chunk per Genie reasoning step or result.
     """
 
     def __init__(self) -> None:
         self.conversation_id: Optional[str] = None
         self.response_id: Optional[str] = None
-        self.segments: list[str] = []
+        self.blocks: list[dict[str, Any]] = []
         self.event_count: int = 0
         self.terminal_status: Optional[str] = None
         self.terminal_error: Optional[str] = None
 
     def handle(
         self, event_type: Optional[str], payload: dict[str, Any]
-    ) -> Optional[str]:
-        """Process one event. Returns text to stream, or ``None``."""
+    ) -> Optional[dict[str, Any]]:
+        """Process one event. Returns a content block to stream, or ``None``."""
         self.event_count += 1
         kind: str = event_type or payload.get("type") or ""
 
@@ -202,18 +229,25 @@ class _StreamState:
         if kind == "response.output_item.done":
             item: dict[str, Any] = payload.get("item") or {}
             item_type: str = item.get("type") or ""
-            text: Optional[str] = None
-            if item_type == "function_call":
-                text = _format_function_call_block(item)
-            elif item_type == "function_call_output":
-                text = _format_function_call_output(item) or None
-            elif item_type == "message":
-                text = _format_message_item(item) or None
-            # reasoning items are intentionally not surfaced.
-            if text:
-                self.segments.append(text)
-                return text + "\n\n"
-            return None
+            block: Optional[dict[str, Any]] = None
+            if item_type == "reasoning":
+                if reasoning := _format_reasoning_item(item):
+                    # Trailing separator keeps consecutive reasoning steps apart
+                    # when a consumer concatenates the reasoning channel.
+                    block = {"type": "reasoning", "reasoning": reasoning + "\n\n"}
+            else:
+                text: Optional[str] = None
+                if item_type == "function_call":
+                    text = _format_function_call_block(item)
+                elif item_type == "function_call_output":
+                    text = _format_function_call_output(item) or None
+                elif item_type == "message":
+                    text = _format_message_item(item) or None
+                if text:
+                    block = {"type": "text", "text": text + "\n\n"}
+            if block:
+                self.blocks.append(block)
+            return block
 
         if kind in {"response.completed", "response.failed"}:
             response_obj = payload.get("response") or {}
@@ -231,9 +265,13 @@ class _StreamState:
 
         return None
 
-    def aggregated_content(self) -> str:
-        content: str = "\n\n".join(seg for seg in self.segments if seg)
-        return content or "(Genie Agent returned no output.)"
+    def aggregated_content(self) -> list[dict[str, Any]]:
+        if any(block["type"] == "text" for block in self.blocks):
+            return self.blocks
+        return [
+            *self.blocks,
+            {"type": "text", "text": "(Genie Agent returned no output.)"},
+        ]
 
     def raise_on_error(self) -> None:
         if self.terminal_error:
@@ -416,15 +454,16 @@ class GenieAgentChatModel(BaseChatModel):
                     if raw_line.rstrip("\r") != "":
                         continue
                     # Complete record boundary — parse and drain.
+                    # BaseChatModel fires on_llm_new_token for each yielded
+                    # chunk, which is what LangGraph's messages stream reads.
                     for event_type, payload in _parse_sse_lines(buffer):
-                        text: Optional[str] = state.handle(event_type, payload)
-                        if text:
-                            chunk = ChatGenerationChunk(
-                                message=AIMessageChunk(content=text)
+                        block: Optional[dict[str, Any]] = state.handle(
+                            event_type, payload
+                        )
+                        if block:
+                            yield ChatGenerationChunk(
+                                message=AIMessageChunk(content=[block])
                             )
-                            if run_manager:
-                                await run_manager.on_llm_new_token(text, chunk=chunk)
-                            yield chunk
                     buffer = []
 
         self._set_span_attributes(state)
