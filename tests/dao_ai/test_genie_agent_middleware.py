@@ -275,3 +275,53 @@ class TestAsync:
             result.command.update["session"].genie.get_conversation_id(AGENT_ID)
             == "conv-next"
         )
+
+
+def _handler_with_reasoning(_req: Any) -> ModelResponse:
+    return ModelResponse(
+        result=[
+            AIMessage(
+                content=[
+                    {"type": "reasoning", "reasoning": "plan\n\n"},
+                    {"type": "text", "text": "answer\n\n"},
+                ],
+                response_metadata={CONVERSATION_ID_METADATA_KEY: "conv-new"},
+            )
+        ]
+    )
+
+
+class TestStripReasoningFromState:
+    """Genie's reasoning blocks are streamed to the client but must not be
+    committed to graph state: replayed to a downstream LLM (supervisor,
+    swarm peer) they are rejected with HTTP 400 by Claude and GPT endpoints."""
+
+    def test_committed_message_has_no_reasoning(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch)
+        result = mw.wrap_model_call(_request(None), _handler_with_reasoning)
+        message: AIMessage = _final_ai_message(result)
+        assert message.content == [{"type": "text", "text": "answer\n\n"}]
+        assert message.response_metadata[CONVERSATION_ID_METADATA_KEY] == "conv-new"
+
+    def test_handback_summary_and_strip_compose(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch, handback=True)
+        request = _request(None, tools=[handoff_to_supervisor])
+        result = mw.wrap_model_call(request, _handler_with_reasoning)
+        message: AIMessage = _final_ai_message(result)
+        assert [b["type"] for b in message.content] == ["text"]
+        assert message.tool_calls[0]["args"]["summary"] == "answer"
+
+    def test_awrap_strips_reasoning(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch)
+
+        async def _handler(req: Any) -> ModelResponse:
+            return _handler_with_reasoning(req)
+
+        result = asyncio.run(mw.awrap_model_call(_request(None), _handler))
+        message: AIMessage = _final_ai_message(result)
+        assert [b["type"] for b in message.content] == ["text"]
+
+    def test_string_content_untouched(self, monkeypatch: Any) -> None:
+        mw, _ = _middleware(monkeypatch)
+        result = mw.wrap_model_call(_request(None), _handler_returning("conv-new"))
+        assert _final_ai_message(result).content == "answer"

@@ -28,6 +28,8 @@ Flow per call:
 * read the Genie-issued id off the returned ``AIMessage.response_metadata``
   (reliable here — read within the same run, before the ResponsesAgent
   serialization strips metadata);
+* drop Genie's reasoning blocks from the committed message — they have already
+  streamed, and replayed to a downstream LLM they are rejected;
 * persist it back to ``session`` via
   ``ExtendedModelResponse(command=Command(update={"session": ...}))``.
 """
@@ -161,6 +163,30 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
             return text[: _MAX_HANDBACK_SUMMARY_CHARS - 1].rstrip() + "…"
         return text
 
+    @staticmethod
+    def _strip_reasoning(response: ModelResponse) -> None:
+        """Drop Genie's reasoning blocks from the committed ``AIMessage``s, in place.
+
+        The blocks have already streamed to the client (chunks are emitted
+        while ``handler`` runs). Kept in graph state they would be replayed to
+        whichever LLM reads this history next — a supervisor, a swarm peer —
+        and Claude and GPT endpoints reject a foreign reasoning block with HTTP
+        400. Genie itself never needs them: its server owns the conversation.
+        """
+        result: list[Any] = response.result or []
+        for index, message in enumerate(result):
+            if not isinstance(message, AIMessage) or not isinstance(
+                message.content, list
+            ):
+                continue
+            content: list[Any] = [
+                block
+                for block in message.content
+                if not (isinstance(block, dict) and block.get("type") == "reasoning")
+            ]
+            if len(content) != len(message.content):
+                result[index] = message.model_copy(update={"content": content})
+
     def _maybe_inject_handback(
         self, request: ModelRequest, response: ModelResponse
     ) -> None:
@@ -248,6 +274,7 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
         model: LanguageModelLike = self._build_model(context, prior)
         response: ModelResponse = handler(request.override(model=model))
         issued: Optional[str] = self._issued_conversation_id(response)
+        self._strip_reasoning(response)
         if self.handback:
             self._maybe_inject_handback(request, response)
         command: Command | None = self._session_command(request.state, issued, prior)
@@ -267,6 +294,7 @@ class GenieAgentMiddleware(AgentMiddleware[AgentState, Context]):
         model: LanguageModelLike = self._build_model(context, prior)
         response: ModelResponse = await handler(request.override(model=model))
         issued: Optional[str] = self._issued_conversation_id(response)
+        self._strip_reasoning(response)
         if self.handback:
             self._maybe_inject_handback(request, response)
         command: Command | None = self._session_command(request.state, issued, prior)

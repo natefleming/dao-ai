@@ -131,6 +131,37 @@ def _happy_events(conversation_id: str = "conv-1") -> list[tuple[str, dict[str, 
     ]
 
 
+def _reasoning_item(item_id: str, text: str) -> dict[str, Any]:
+    return {
+        "id": item_id,
+        "type": "reasoning",
+        "status": "completed",
+        "content": [{"type": "reasoning_text", "text": text}],
+        "summary": [],
+    }
+
+
+def _reasoning_events(
+    conversation_id: str = "conv-1",
+) -> list[tuple[str, dict[str, Any]]]:
+    """The happy path with reasoning items interleaved, shaped like the live
+    API: each reasoning item arrives complete on ``output_item.added`` and is
+    repeated verbatim on ``output_item.done``."""
+    happy = _happy_events(conversation_id)
+    plan = _reasoning_item("rsn-1", "I'll count stores per state.")
+    recap = _reasoning_item("rsn-2", "California has the most; summarize.")
+    return [
+        happy[0],
+        ("response.output_item.added", {"item": plan}),
+        ("response.output_item.done", {"item": plan}),
+        happy[1],
+        happy[2],
+        ("response.output_item.added", {"item": recap}),
+        ("response.output_item.done", {"item": recap}),
+        *happy[3:],
+    ]
+
+
 def _fake_workspace_client() -> Any:
     """A duck-typed WorkspaceClient: ``config.host`` + ``config.authenticate``.
 
@@ -195,7 +226,7 @@ class TestStreaming:
             record=record,
         )
         result = model.invoke([HumanMessage("How many stores by state?")])
-        content = result.content
+        content = result.text
         assert "```sql" in content
         assert "SELECT state, COUNT(*) FROM stores" in content
         assert "California leads with 42 stores." in content
@@ -222,7 +253,7 @@ class TestStreaming:
         async def _collect() -> list[str]:
             chunks: list[str] = []
             async for chunk in model.astream([HumanMessage("q")]):
-                chunks.append(chunk.content)
+                chunks.append(chunk.text)
             return chunks
 
         chunks = asyncio.run(_collect())
@@ -250,6 +281,154 @@ class TestStreaming:
 
         acc = asyncio.run(_accumulate())
         assert acc.response_metadata.get(CONVERSATION_ID_METADATA_KEY) == "conv-1"
+
+
+# ---------------------------------------------------------------------------
+# Reasoning: Genie ``reasoning`` items surface as standard reasoning blocks
+# ---------------------------------------------------------------------------
+
+
+def _reasoning_texts(content: Any) -> list[str]:
+    return [
+        block["reasoning"]
+        for block in content
+        if isinstance(block, dict) and block.get("type") == "reasoning"
+    ]
+
+
+class TestReasoning:
+    def test_astream_emits_reasoning_blocks_in_wire_order(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(_reasoning_events())),
+            monkeypatch,
+        )
+
+        async def _collect() -> list[dict[str, Any]]:
+            blocks: list[dict[str, Any]] = []
+            async for chunk in model.astream([HumanMessage("q")]):
+                if isinstance(chunk.content, list):
+                    blocks.extend(chunk.content)
+            return blocks
+
+        blocks = asyncio.run(_collect())
+        kinds = [b["type"] for b in blocks]
+        # plan → sql → table → recap → answer; added+done emit each item once.
+        assert kinds == ["reasoning", "text", "text", "reasoning", "text"]
+        assert blocks[0]["reasoning"].startswith("I'll count stores per state.")
+        assert blocks[3]["reasoning"].startswith("California has the most")
+        assert "```sql" in blocks[1]["text"]
+
+    def test_accumulated_stream_separates_reasoning_from_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(_reasoning_events())),
+            monkeypatch,
+        )
+
+        async def _accumulate() -> AIMessage:
+            acc = None
+            async for chunk in model.astream([HumanMessage("q")]):
+                acc = chunk if acc is None else acc + chunk
+            return acc
+
+        acc = asyncio.run(_accumulate())
+        assert len(_reasoning_texts(acc.content)) == 2
+        assert "I'll count stores" not in acc.text
+        assert "California leads with 42 stores." in acc.text
+        assert acc.response_metadata.get(CONVERSATION_ID_METADATA_KEY) == "conv-1"
+
+    def test_invoke_matches_stream_content(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(_reasoning_events())),
+            monkeypatch,
+        )
+
+        async def _accumulate() -> AIMessage:
+            acc = None
+            async for chunk in model.astream([HumanMessage("q")]):
+                acc = chunk if acc is None else acc + chunk
+            return acc
+
+        streamed = asyncio.run(_accumulate())
+        invoked = model.invoke([HumanMessage("q")])
+        ainvoked = asyncio.run(model.ainvoke([HumanMessage("q")]))
+        assert invoked.content == streamed.content
+        assert ainvoked.content == streamed.content
+
+    def test_split_content_routes_reasoning_to_its_own_channel(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """dao-ai's Responses layer splits each streamed chunk with
+        ``_split_content``: reasoning must land in the reasoning channel (→
+        ``response.reasoning_summary_text.delta``), never in answer text."""
+        from dao_ai.models import _split_content
+
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(_reasoning_events())),
+            monkeypatch,
+        )
+
+        async def _split() -> tuple[str, str]:
+            text, reasoning = "", ""
+            async for chunk in model.astream([HumanMessage("q")]):
+                t, r = _split_content(chunk.content)
+                text, reasoning = text + t, reasoning + r
+            return text, reasoning
+
+        text, reasoning = asyncio.run(_split())
+        assert "I'll count stores per state." in reasoning
+        assert "California has the most" in reasoning
+        # Consecutive reasoning items stay separated, not glued together.
+        assert "state.California" not in reasoning
+        assert "I'll count stores" not in text
+        assert "California leads with 42 stores." in text
+
+    def test_reasoning_only_response_still_has_answer_text(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        events = [
+            _happy_events()[0],
+            ("response.output_item.done", {"item": _reasoning_item("r", "hmm")}),
+            _happy_events()[-1],
+        ]
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(events)),
+            monkeypatch,
+        )
+        result = model.invoke([HumanMessage("q")])
+        assert _reasoning_texts(result.content) == ["hmm\n\n"]
+        assert result.text == "(Genie Agent returned no output.)"
+
+    def test_reasoning_only_stream_matches_invoke(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Streaming is the usual path; with no fallback it would commit an
+        empty ``content=[]`` message once the middleware strips reasoning."""
+        events = [
+            _happy_events()[0],
+            ("response.output_item.done", {"item": _reasoning_item("r", "hmm")}),
+            _happy_events()[-1],
+        ]
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(events)),
+            monkeypatch,
+        )
+
+        async def _accumulate() -> AIMessage:
+            acc = None
+            async for chunk in model.astream([HumanMessage("q")]):
+                acc = chunk if acc is None else acc + chunk
+            return acc
+
+        streamed = asyncio.run(_accumulate())
+        assert streamed.content == model.invoke([HumanMessage("q")]).content
+        assert streamed.text == "(Genie Agent returned no output.)"
+        assert streamed.response_metadata.get(CONVERSATION_ID_METADATA_KEY) == "conv-1"
 
 
 # ---------------------------------------------------------------------------
@@ -778,7 +957,7 @@ class TestBindTools:
 
         last = result["messages"][-1]
         assert isinstance(last, AIMessage)
-        assert "California leads with 42 stores." in last.content
+        assert "California leads with 42 stores." in last.text
         assert not last.tool_calls
         assert calls == []
         assert record["url"].endswith(f"/api/2.0/genie/agents/{AGENT_ID}/responses")
