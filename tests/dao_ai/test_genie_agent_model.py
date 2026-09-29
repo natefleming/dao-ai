@@ -404,6 +404,32 @@ class TestReasoning:
         assert _reasoning_texts(result.content) == ["hmm\n\n"]
         assert result.text == "(Genie Agent returned no output.)"
 
+    def test_reasoning_only_stream_matches_invoke(
+        self, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        """Streaming is the usual path; with no fallback it would commit an
+        empty ``content=[]`` message once the middleware strips reasoning."""
+        events = [
+            _happy_events()[0],
+            ("response.output_item.done", {"item": _reasoning_item("r", "hmm")}),
+            _happy_events()[-1],
+        ]
+        model = _model_with_transport(
+            lambda req: httpx.Response(200, content=_sse(events)),
+            monkeypatch,
+        )
+
+        async def _accumulate() -> AIMessage:
+            acc = None
+            async for chunk in model.astream([HumanMessage("q")]):
+                acc = chunk if acc is None else acc + chunk
+            return acc
+
+        streamed = asyncio.run(_accumulate())
+        assert streamed.content == model.invoke([HumanMessage("q")]).content
+        assert streamed.text == "(Genie Agent returned no output.)"
+        assert streamed.response_metadata.get(CONVERSATION_ID_METADATA_KEY) == "conv-1"
+
 
 # ---------------------------------------------------------------------------
 # conversation_id is a pure field on the model (no message scanning)

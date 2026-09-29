@@ -265,13 +265,16 @@ class _StreamState:
 
         return None
 
-    def aggregated_content(self) -> list[dict[str, Any]]:
+    def fallback_block(self) -> Optional[dict[str, Any]]:
+        """Placeholder answer when Genie produced no text (e.g. reasoning only),
+        so the committed message is never empty once reasoning is stripped."""
         if any(block["type"] == "text" for block in self.blocks):
-            return self.blocks
-        return [
-            *self.blocks,
-            {"type": "text", "text": "(Genie Agent returned no output.)"},
-        ]
+            return None
+        return {"type": "text", "text": "(Genie Agent returned no output.)"}
+
+    def aggregated_content(self) -> list[dict[str, Any]]:
+        fallback: Optional[dict[str, Any]] = self.fallback_block()
+        return [*self.blocks, fallback] if fallback else self.blocks
 
     def raise_on_error(self) -> None:
         if self.terminal_error:
@@ -468,6 +471,9 @@ class GenieAgentChatModel(BaseChatModel):
 
         self._set_span_attributes(state)
         state.raise_on_error()
+
+        if fallback := state.fallback_block():
+            yield ChatGenerationChunk(message=AIMessageChunk(content=[fallback]))
 
         # Emit a terminal chunk carrying the conversation_id metadata so the
         # accumulated AIMessage the caller assembles can be continued next turn.
