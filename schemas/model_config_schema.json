@@ -798,6 +798,135 @@
       "title": "AgentModel",
       "type": "object"
     },
+    "AgentbricksMemoryToolModel": {
+      "additionalProperties": false,
+      "description": "First-class long-term memory tools backed by Databricks Agents Managed Memory.\n\nWraps ``databricks_agentkit.langgraph.memory_tools`` (from the\n``databricks-agentbricks`` package), which returns two tools \u2014 ``remember``\nand ``recall`` \u2014 persisting to the Databricks Agents Managed Memory API.\nEquivalent to ``type: factory`` pointing at the wrapper, but with typed\nfields.\n\nThis is distinct from the agent's auto-attached long-term ``store`` tools:\nit is an explicit, config-selected tool the agent calls to persist and\nretrieve facts for a given ``actor``.",
+      "properties": {
+        "type": {
+          "const": "agentbricks_memory",
+          "default": "agentbricks_memory",
+          "description": "Function type discriminator. Must be 'agentbricks_memory'.",
+          "title": "Type",
+          "type": "string"
+        },
+        "human_in_the_loop": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/HumanInTheLoopModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Human-in-the-loop approval configuration for this tool."
+        },
+        "audit": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/AuditModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Optional tamper-evident audit trail for this tool. Presence of this block enables audit-receipt logging on every invocation; absence leaves the runtime path unchanged. Typically declared once as a YAML anchor and referenced from every tool that should be audited. Composes with human_in_the_loop to produce approval receipts with args-hash binding and fail-closed execution."
+        },
+        "call_limit": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "$ref": "#/$defs/ToolCallLimitModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Shortcut to cap how many times this tool may be called. A bare integer sets run_limit (per-invocation) with exit_behavior='continue'; an object gives full control over run_limit/thread_limit/exit_behavior. Applied automatically to every agent that uses this tool, in addition to any explicit tool-call-limit middleware configured on the agent.",
+          "title": "Call Limit"
+        },
+        "store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Databricks Agents memory-store name. When omitted, resolves from the AGENT_MEMORY_STORE environment variable.",
+          "title": "Store"
+        },
+        "actor": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Identity that owns the memories (per-user isolation). Captured in the tool closures; not exposed to the model.",
+          "title": "Actor"
+        }
+      },
+      "title": "AgentbricksMemoryToolModel",
+      "type": "object"
+    },
     "AiSearchEndpoint": {
       "additionalProperties": false,
       "description": "AI Search endpoint that hosts one or more indexes.\n\n(Formerly ``VectorSearchEndpoint``. See :class:`AiSearchEndpointType`.)",
@@ -2317,6 +2446,18 @@
           ],
           "default": null,
           "description": "Database for persistent storage. If omitted, uses in-memory storage (lost on restart)."
+        },
+        "session_store": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/SessionStoreModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Databricks Session Store backend. Mutually exclusive with 'database'."
         }
       },
       "required": [
@@ -9848,6 +9989,50 @@
       "title": "ServingEndpointToolModel",
       "type": "object"
     },
+    "SessionStoreModel": {
+      "additionalProperties": false,
+      "description": "Databricks Session Store reference backing a LangGraph checkpointer.\n\nSelects the Databricks **Session Store** backend for a\n:class:`CheckpointerModel`. The store persists LangGraph thread state\n(channel blobs, versions, pending writes) via the Session Store REST API,\nusing ``databricks_agentkit.langgraph.session_store.DatabricksSessionStoreSaver``.\n\nThe saver resolves its workspace client from the ambient runtime, so all\nfour dao-ai auth modes work unchanged \u2014 only the store name is required.",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "description": "Databricks Session Store name backing the checkpointer.",
+          "title": "Name"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "SessionStoreModel",
+      "type": "object"
+    },
     "SkillModel": {
       "additionalProperties": false,
       "description": "A deepagents skill \u2014 a directory of Markdown content that teaches a deep_agent how to do a task.\n\nA skill at minimum contains ``SKILL.md`` (deepagents convention). It may also contain\n``AGENTS.md`` for memory, plus arbitrary supporting files referenced by the SKILL.\n\nSkills can live in two places, both expressed via the ``path`` field:\n\n* **Local** \u2014 a plain string relative path under the project root\n  (e.g. ``skills/research``). The directory is bundled with the model\n  artifact via ``code_paths`` and shipped with both Model Serving and\n  Databricks Apps deployments.\n* **Volume** \u2014 a ``VolumePathModel`` referencing a Unity Catalog volume\n  (``/Volumes/<cat>/<schema>/<vol>/...``). The path is read directly at\n  runtime and the volume is wired as a deployment resource for permission\n  grants. Use this when skills are governed centrally.\n\nA raw absolute string starting with ``/Volumes/`` is auto-promoted to a\n``VolumePathModel`` by the pre-validator, so users may copy-paste paths\nfrom the UC explorer without writing the structured form. The structured\nform (``volume:`` + ``path:``) is preferred for governed skills because\nit gives the deployment pipeline a typed handle to the volume.\n\nSkills are referenced from ``orchestration.deep_agent.skills`` (or per-subagent\n``subagents[].skills``) and resolved to filesystem paths that deepagents'\n``SkillsMiddleware`` can load.",
@@ -10730,6 +10915,9 @@
             },
             {
               "$ref": "#/$defs/A2AToolModel"
+            },
+            {
+              "$ref": "#/$defs/AgentbricksMemoryToolModel"
             },
             {
               "type": "string"

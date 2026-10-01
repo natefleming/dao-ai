@@ -22,6 +22,7 @@ from dao_ai.memory.schemas import (
     UserProfile,
     resolve_schemas,
 )
+from dao_ai.memory.session_store import SessionStoreCheckpointerManager
 
 __all__ = [
     "CheckpointManagerBase",
@@ -32,6 +33,7 @@ __all__ = [
     "AgentMemoryStoreManager",
     "LakebaseCheckpointerManager",
     "LakebaseStoreManager",
+    "SessionStoreCheckpointerManager",
     "create_extraction_manager",
     "create_reflection_executor",
     "EpisodeMemory",

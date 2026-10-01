@@ -13,6 +13,7 @@ from dao_ai.config import (
     InferenceEndpointModel,
     StorageType,
     StoreModel,
+    value_of,
 )
 from dao_ai.memory.base import (
     CheckpointManagerBase,
@@ -157,6 +158,18 @@ class CheckpointManager:
                         checkpointer_manager = AsyncPostgresCheckpointerManager(
                             checkpointer_model
                         )
+                    cls.checkpoint_managers[cache_key] = checkpointer_manager
+            case StorageType.SESSION_STORE:
+                cache_key = value_of(checkpointer_model.session_store.name)
+                checkpointer_manager = cls.checkpoint_managers.get(cache_key)
+                if checkpointer_manager is None:
+                    from dao_ai.memory.session_store import (
+                        SessionStoreCheckpointerManager,
+                    )
+
+                    checkpointer_manager = SessionStoreCheckpointerManager(
+                        checkpointer_model
+                    )
                     cls.checkpoint_managers[cache_key] = checkpointer_manager
             case _:
                 raise ValueError(

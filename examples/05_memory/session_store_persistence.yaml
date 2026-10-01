@@ -1,0 +1,139 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# =============================================================================
+# Databricks Session Store checkpointer + Agentbricks memory tools
+# =============================================================================
+# Demonstrates the two capabilities from the `databricks-agentbricks` package
+# (databricks-ai-bridge) wired into dao-ai:
+#
+# 1. CHECKPOINTER — `memory.checkpointer.session_store` persists conversation
+#    thread state (short-term, per-turn) in a Databricks **Session Store** via
+#    `DatabricksSessionStoreSaver`. Alternative to Lakebase/Postgres/in-memory.
+#    The checkpointer requires an `actor_id` to partition sessions per user;
+#    dao-ai supplies it automatically from the resolved user identity (falling
+#    back to the thread id), so no extra config is needed.
+#
+# 2. MEMORY TOOLS — a first-class `agentbricks_memory` tool exposes the
+#    `remember` / `recall` tools backed by the Databricks Agents Managed Memory
+#    API, scoped to an `actor` (defaults to the runtime identity).
+#
+# Prerequisites — both backing resources must already exist. Create them once
+# (Python, databricks-agentbricks installed):
+#   from databricks_agentkit.client import AgentKitClient
+#   c = AgentKitClient()
+#   c.session_stores.create(name="dao-ai-session-store")
+#   c.memory_stores.create(display_name="dao-ai-agent-memory")
+# Names must be 3-55 chars, lowercase letters/digits/hyphens.
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: main
+  schema:
+    description: Schema within the catalog
+    default: default
+  llm:
+    description: Chat/reasoning serving endpoint for the agent
+    default: databricks-claude-sonnet-4-5
+  session_store:
+    description: Databricks Session Store name backing the checkpointer (must already exist)
+    default: dao-ai-session-store
+  memory_store:
+    description: Databricks Agents memory-store name for the remember/recall tools (must already exist)
+    default: dao-ai-agent-memory
+  memory_actor:
+    description: Identity that owns the remember/recall memories (per-user isolation)
+    default: dao-ai-demo-user
+
+schemas:
+  demo_schema: &demo_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+      max_tokens: 4096
+
+# =============================================================================
+# MEMORY — short-term thread state on the Databricks Session Store
+# =============================================================================
+memory: &memory
+  checkpointer:
+    name: session_store_checkpointer
+    session_store:                           # selects the Session Store backend
+      name: ${var.session_store}
+
+# =============================================================================
+# TOOLS — long-term remember/recall on Databricks Agents Managed Memory
+# =============================================================================
+tools:
+  agent_memory_tool: &agent_memory_tool
+    name: agent_memory
+    function:
+      type: agentbricks_memory
+      store: ${var.memory_store}
+      # Identity the memories belong to. Set explicitly for deterministic,
+      # per-user isolation. If omitted, dao-ai resolves the runtime identity
+      # (OBO user / service principal) — which requires that lookup to succeed
+      # at build time and yields SP-scoped (shared) memory in an App.
+      actor: ${var.memory_actor}
+
+agents:
+  memory_agent: &memory_agent
+    name: memory_agent
+    description: "Assistant with Session Store checkpointing + agentbricks memory tools"
+    model: *default_llm
+    tools:
+    - *agent_memory_tool
+    prompt: |
+      You are a helpful assistant. Your conversation thread state is persisted
+      to a Databricks Session Store, so you resume context across turns on the
+      same thread.
+
+      You also have long-term memory tools:
+      - Use `remember` to persist durable facts the user shares about themselves
+        (name, role, stable preferences).
+      - Use `recall` to look up what you know before answering personal questions.
+      Do not store transient or one-off request details.
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: session_store_dao
+  description: "Chat agent with Databricks Session Store checkpointing + memory tools"
+  log_level: INFO
+
+  # dao-ai's tools/time.py imports pytz unconditionally, but pytz is a
+  # transitive-only (undeclared) dependency. Databricks Apps install dao-ai's
+  # *declared* deps from the bundled wheel, so pytz is absent there and the
+  # backend crashes on import. Declaring it here installs it into the Apps
+  # requirements. (Model Serving captures the full env, so it is unaffected.)
+  pip_requirements:
+  - pytz
+
+  registered_model:
+    schema: *demo_schema
+    name: session_store_dao
+
+  agents:
+  - *memory_agent
+
+  orchestration:
+    memory: *memory
+    swarm:
+      default_agent: *memory_agent
+
+  input_example:
+    messages:
+    - role: user
+      content: "My name is Nate and I'm a data engineer. I prefer concise answers with code examples. Please remember that."
+    custom_inputs:
+      configurable:
+        thread_id: "session-store-demo-1"
+        user_id: "nate.fleming@databricks.com"

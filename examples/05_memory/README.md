@@ -52,6 +52,7 @@ flowchart TB
 | [`postgres_persistence.yaml`](./postgres_persistence.yaml) | PostgreSQL | Production-ready persistence |
 | [`lakebase_persistence.yaml`](./lakebase_persistence.yaml) | Lakebase | Databricks-native persistence with Unity Catalog |
 | [`agent_memory_persistence.yaml`](./agent_memory_persistence.yaml) | Managed Agent Memory | UC-governed long-term `store` on the Databricks Managed Agent Memory API (keyword search; store only, not a checkpointer) |
+| [`session_store_persistence.yaml`](./session_store_persistence.yaml) | Session Store + Agents Memory | `databricks-agentbricks`: a Session Store checkpointer (thread state) plus the first-class `agentbricks_memory` tool (`remember`/`recall`) backed by the Agents Managed Memory API |
 | [`conversation_summarization.yaml`](./conversation_summarization.yaml) | Lakebase | Long conversation summarization with store |
 
 ## Memory Components
