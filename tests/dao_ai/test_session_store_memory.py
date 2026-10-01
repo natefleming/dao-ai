@@ -160,6 +160,30 @@ class TestAgentbricksMemoryTools:
         mod.create_agentbricks_memory_tools(store="s", actor=None)
         assert stub_agentkit["actor"] == "resolved-user"
 
+    def test_unresolvable_actor_fails_closed(
+        self, stub_agentkit, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # No actor configured + ambient identity unresolvable -> raise rather than
+        # silently writing/reading an empty, unpartitioned actor bucket.
+        import dao_ai.tools.session_store as mod
+
+        class _CurrentUser:
+            def me(self):
+                raise RuntimeError("token lacks scope")
+
+        class _WorkspaceClient:
+            def __init__(self, *a, **k):
+                pass
+
+            current_user = _CurrentUser()
+
+        sdk = types.ModuleType("databricks.sdk")
+        sdk.WorkspaceClient = _WorkspaceClient
+        monkeypatch.setitem(sys.modules, "databricks.sdk", sdk)
+
+        with pytest.raises(ValueError, match="actor"):
+            mod.create_agentbricks_memory_tools(store="s", actor=None)
+
 
 # ---------------------------------------------------------------------------
 # user_id / actor_id aliasing — lets the Session Store checkpointer (which

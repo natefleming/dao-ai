@@ -160,7 +160,12 @@ class CheckpointManager:
                         )
                     cls.checkpoint_managers[cache_key] = checkpointer_manager
             case StorageType.SESSION_STORE:
-                cache_key = value_of(checkpointer_model.session_store.name)
+                # Namespace by storage type so a session-store name cannot collide
+                # with a POSTGRES (database.name) or MEMORY (checkpointer name) key
+                # in this shared cache dict.
+                cache_key = (
+                    f"session_store:{value_of(checkpointer_model.session_store.name)}"
+                )
                 checkpointer_manager = cls.checkpoint_managers.get(cache_key)
                 if checkpointer_manager is None:
                     from dao_ai.memory.session_store import (

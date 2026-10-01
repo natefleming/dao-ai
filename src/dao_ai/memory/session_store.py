@@ -73,8 +73,14 @@ class _SessionScopedSaver(BaseCheckpointSaver):
         self._inner = inner
 
     def __getattr__(self, name: str) -> Any:
-        # Only reached for attributes not found on the wrapper itself.
-        return getattr(self.__dict__["_inner"], name)
+        # Only reached for attributes not found on the wrapper itself. Guard the
+        # pre-``_inner`` window (e.g. copy/pickle attribute probes) so a miss
+        # raises AttributeError, not KeyError — preserving getattr()/hasattr().
+        try:
+            inner = self.__dict__["_inner"]
+        except KeyError:
+            raise AttributeError(name) from None
+        return getattr(inner, name)
 
     def get_tuple(self, config: RunnableConfig) -> Optional[CheckpointTuple]:
         return self._inner.get_tuple(_scope_config(config))

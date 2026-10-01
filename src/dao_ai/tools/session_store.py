@@ -31,12 +31,18 @@ class AgentbricksMemoryToolkit(BaseToolkit):
 
 
 def _resolve_actor(actor: AnyVariable | None) -> str:
-    """Resolve the memory ``actor``, falling back to the current workspace user.
+    """Resolve the memory ``actor`` — the partition these tools read and write.
 
-    ``memory_tools`` requires an ``actor``; when none is configured we best-effort
-    resolve the ambient identity (deploy/OBO user) so memories are partitioned per
-    user. Per-request actor switching would require per-request tool construction
-    and is out of scope here.
+    When ``actor`` is configured it is used verbatim. Otherwise the ambient
+    identity (deploy service principal / OBO user) is resolved. This is a single
+    partition captured for the life of the built tools — it is NOT per request, so
+    in a multi-user deployment configure a per-deployment ``actor`` to avoid
+    co-mingling different callers' memories.
+
+    Fails closed: if no ``actor`` is configured and the ambient identity cannot be
+    resolved to a non-empty value, raise rather than silently reading/writing an
+    unpartitioned (empty-actor) bucket — the Managed Memory API rejects an empty
+    ``actor_id`` anyway.
     """
     actor_value: str | None = value_of(actor) if actor is not None else None
     if actor_value:
@@ -46,15 +52,18 @@ def _resolve_actor(actor: AnyVariable | None) -> str:
 
     try:
         resolved: str = WorkspaceClient().current_user.me().user_name
-        logger.debug("Resolved agentbricks memory actor from runtime", actor=resolved)
-        return resolved
-    except Exception as exc:  # noqa: BLE001 - best-effort, non-fatal
-        logger.warning(
-            "Could not resolve current user for agentbricks memory actor; "
-            "memories will be unpartitioned",
-            error=str(exc),
+    except Exception as exc:  # noqa: BLE001 - surfaced as a clear ValueError below
+        raise ValueError(
+            "Could not resolve an identity for the agentbricks memory 'actor'; "
+            "set 'actor' explicitly on the agentbricks_memory tool."
+        ) from exc
+    if not resolved:
+        raise ValueError(
+            "Resolved an empty agentbricks memory 'actor'; set 'actor' explicitly "
+            "on the agentbricks_memory tool."
         )
-        return ""
+    logger.debug("Resolved agentbricks memory actor from runtime", actor=resolved)
+    return resolved
 
 
 def create_agentbricks_memory_tools(
@@ -66,8 +75,9 @@ def create_agentbricks_memory_tools(
     Args:
         store: Databricks Agents memory-store name. When ``None``, the library
             resolves it from the ``AGENT_MEMORY_STORE`` environment variable.
-        actor: Identity owning the memories. When ``None``, resolves the current
-            workspace user.
+        actor: Identity owning the memories (a single partition for the built
+            tools, not per request). When ``None``, resolves the ambient identity
+            and raises if it cannot be resolved.
 
     Returns:
         An :class:`AgentbricksMemoryToolkit` exposing the ``remember`` and

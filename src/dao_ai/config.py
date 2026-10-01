@@ -7929,8 +7929,11 @@ class AgentbricksMemoryToolModel(BaseFunctionModel):
     actor: Optional[AnyVariable] = Field(
         default=None,
         description=(
-            "Identity that owns the memories (per-user isolation). Captured in "
-            "the tool closures; not exposed to the model."
+            "Identity that owns the memories — a single partition captured in the "
+            "tool closures for the life of the built agent (NOT per request), not "
+            "exposed to the model. When omitted, the ambient deploy/OBO identity is "
+            "resolved. In a multi-user deployment set this per deployment to avoid "
+            "co-mingling callers' memories."
         ),
     )
 

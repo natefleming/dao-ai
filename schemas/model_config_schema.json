@@ -920,7 +920,7 @@
             }
           ],
           "default": null,
-          "description": "Identity that owns the memories (per-user isolation). Captured in the tool closures; not exposed to the model.",
+          "description": "Identity that owns the memories \u2014 a single partition captured in the tool closures for the life of the built agent (NOT per request), not exposed to the model. When omitted, the ambient deploy/OBO identity is resolved. In a multi-user deployment set this per deployment to avoid co-mingling callers' memories.",
           "title": "Actor"
         }
       },
