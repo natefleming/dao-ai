@@ -830,6 +830,10 @@ class LanggraphChatModel(ChatModel):
         if not user_id:
             user_id = resolve_user_id_from_headers(configurable.get("headers"))
 
+        # Preserve the real principal (e.g. "nate.fleming@databricks.com") for the
+        # Session Store actor label before the memory-namespace normalization below
+        # mangles dots — so sessions are owned by the actual identity.
+        identity: str | None = user_id
         if user_id:
             user_id = user_id.replace(".", "_")
 
@@ -848,8 +852,10 @@ class LanggraphChatModel(ChatModel):
         # checkpointer owns each session by the signed-in user (the library's
         # "actor"); identity-less internal read paths fall back to thread_id in the
         # saver. Inert for thread_id-keyed checkpointers (Postgres/Lakebase/memory).
-        if user_id and not configurable.get("actor_id"):
-            configurable["actor_id"] = user_id
+        # (actor_id was consumed into user_id above as its alias; `identity` is the
+        # un-normalized principal so the session is owned by the real user.)
+        if identity:
+            configurable["actor_id"] = identity
 
         # All remaining configurable values become top-level context attributes
         return Context(
@@ -2187,6 +2193,9 @@ class LanggraphResponsesAgent(ResponsesAgent):
         if not user_id_value:
             user_id_value = resolve_user_id_from_headers(configurable.get("headers"))
 
+        # Preserve the real principal for the Session Store actor label before the
+        # memory-namespace normalization below mangles dots.
+        identity: str | None = user_id_value
         if user_id_value:
             # Normalize user_id for memory namespace (replace . with _)
             user_id_value = user_id_value.replace(".", "_")
@@ -2211,8 +2220,10 @@ class LanggraphResponsesAgent(ResponsesAgent):
         # checkpointer owns each session by the signed-in user (the library's
         # "actor"); identity-less internal read paths fall back to thread_id in the
         # saver. Inert for thread_id-keyed checkpointers (Postgres/Lakebase/memory).
-        if user_id_value and not configurable.get("actor_id"):
-            configurable["actor_id"] = user_id_value
+        # (actor_id was consumed into user_id_value above as its alias; `identity`
+        # is the un-normalized principal so the session is owned by the real user.)
+        if identity:
+            configurable["actor_id"] = identity
 
         # All remaining configurable values become top-level context attributes
         logger.trace(

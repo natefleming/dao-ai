@@ -218,9 +218,11 @@ class TestUserActorAliasing:
 
     def test_identity_flows_as_actor_id(self) -> None:
         # The resolved identity is carried as actor_id so the Session Store
-        # checkpointer owns each session by the signed-in user.
+        # checkpointer owns each session by the signed-in user. actor_id keeps the
+        # real principal (un-normalized), while user_id is namespace-normalized.
         ctx = self._context({"user_id": "carol@x.com", "thread_id": "t4"})
-        assert ctx.actor_id == "carol@x_com"
+        assert ctx.actor_id == "carol@x.com"
+        assert ctx.user_id == "carol@x_com"
 
     def test_no_actor_id_when_no_identity(self) -> None:
         # No identity -> no actor_id carried; the saver wrapper defaults it to
