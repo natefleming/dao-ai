@@ -9,9 +9,10 @@
 # 1. CHECKPOINTER — `memory.checkpointer.session_store` persists conversation
 #    thread state (short-term, per-turn) in a Databricks **Session Store** via
 #    `DatabricksSessionStoreSaver`. Alternative to Lakebase/Postgres/in-memory.
-#    The saver requires an `actor_id` on every call; dao-ai pins it to the
-#    `thread_id` (so isolation is per thread, matching the other checkpointers),
-#    which means no extra config is needed.
+#    The saver requires a non-empty `actor_id`; dao-ai owns each session by the
+#    resolved caller identity (user_id/actor_id) — the library's "actor" — and
+#    falls back to the `thread_id` when no identity is present (matching the
+#    library's thread_config: `actor or session_id`), so no extra config needed.
 #
 # 2. MEMORY TOOLS — a first-class `agentbricks_memory` tool exposes the
 #    `remember` / `recall` tools backed by the Databricks Agents Managed Memory
@@ -129,11 +130,16 @@ app:
     swarm:
       default_agent: *memory_agent
 
+  # Keep the logged input_example non-mutating: model-signature validation
+  # replays it on every deploy. A prompt that triggers `remember` would re-persist
+  # the same fact (AlreadyExists), and a persisted thread_id would resume that
+  # state on the next deploy and retry the write — so use a greeting (writes
+  # nothing) on a dedicated validation thread.
   input_example:
     messages:
     - role: user
-      content: "My name is Nate and I'm a data engineer. I prefer concise answers with code examples. Please remember that."
+      content: "Hi! What can you help me with?"
     custom_inputs:
       configurable:
-        thread_id: "session-store-demo-1"
+        thread_id: "deploy-validation-greeting"
         user_id: "nate.fleming@databricks.com"
