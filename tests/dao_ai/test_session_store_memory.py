@@ -216,10 +216,23 @@ class TestUserActorAliasing:
         )
         assert ctx.user_id == "bob@x_com"
 
+    def test_identity_flows_as_actor_id(self) -> None:
+        # The resolved identity is carried as actor_id so the Session Store
+        # checkpointer owns each session by the signed-in user.
+        ctx = self._context({"user_id": "carol@x.com", "thread_id": "t4"})
+        assert ctx.actor_id == "carol@x_com"
+
+    def test_no_actor_id_when_no_identity(self) -> None:
+        # No identity -> no actor_id carried; the saver wrapper defaults it to
+        # the thread_id for the Session Store backend.
+        ctx = self._context({"thread_id": "t5"})
+        assert ctx.user_id is None
+        assert getattr(ctx, "actor_id", None) is None
+
 
 # ---------------------------------------------------------------------------
-# _SessionScopedSaver — pins actor_id to thread_id so every dao-ai checkpointer
-# entry path (including thread_id-only reads) stays on one session key.
+# _SessionScopedSaver — defaults actor_id to thread_id when none is supplied, so
+# dao-ai's thread_id-only read paths meet the saver's non-empty-actor_id rule.
 # ---------------------------------------------------------------------------
 
 
@@ -240,19 +253,20 @@ class TestSessionScopedSaver:
         inner = _Inner()
         return _SessionScopedSaver(inner), inner
 
-    def test_actor_id_pinned_to_thread_id(self) -> None:
+    def test_actor_id_defaults_to_thread_id_when_absent(self) -> None:
         from dao_ai.memory.session_store import _scope_config
 
         scoped = _scope_config({"configurable": {"thread_id": "t1"}})
         assert scoped["configurable"]["actor_id"] == "t1"
 
-    def test_existing_actor_id_overridden_to_thread_id(self) -> None:
+    def test_supplied_actor_id_is_respected(self) -> None:
         from dao_ai.memory.session_store import _scope_config
 
         scoped = _scope_config(
-            {"configurable": {"thread_id": "t1", "actor_id": "someone"}}
+            {"configurable": {"thread_id": "t1", "actor_id": "alice@x_com"}}
         )
-        assert scoped["configurable"]["actor_id"] == "t1"
+        # per-user session ownership: a supplied actor is NOT overridden
+        assert scoped["configurable"]["actor_id"] == "alice@x_com"
 
     def test_delegates_with_scoped_config(self) -> None:
         wrapper, inner = self._wrapper()

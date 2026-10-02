@@ -844,6 +844,13 @@ class LanggraphChatModel(ChatModel):
         if not thread_id:
             thread_id = str(uuid.uuid4())
 
+        # Carry the resolved identity as actor_id so the Databricks Session Store
+        # checkpointer owns each session by the signed-in user (the library's
+        # "actor"); identity-less internal read paths fall back to thread_id in the
+        # saver. Inert for thread_id-keyed checkpointers (Postgres/Lakebase/memory).
+        if user_id and not configurable.get("actor_id"):
+            configurable["actor_id"] = user_id
+
         # All remaining configurable values become top-level context attributes
         return Context(
             user_id=user_id,
@@ -2199,6 +2206,13 @@ class LanggraphResponsesAgent(ResponsesAgent):
         if not thread_id:
             # Generate new thread_id if neither provided
             thread_id = str(uuid.uuid4())
+
+        # Carry the resolved identity as actor_id so the Databricks Session Store
+        # checkpointer owns each session by the signed-in user (the library's
+        # "actor"); identity-less internal read paths fall back to thread_id in the
+        # saver. Inert for thread_id-keyed checkpointers (Postgres/Lakebase/memory).
+        if user_id_value and not configurable.get("actor_id"):
+            configurable["actor_id"] = user_id_value
 
         # All remaining configurable values become top-level context attributes
         logger.trace(

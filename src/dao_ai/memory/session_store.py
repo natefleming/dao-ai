@@ -11,15 +11,18 @@ all four dao-ai auth modes work unchanged; only the configured store name is
 required. Unlike the Lakebase/Postgres backends there is no connection pool to
 open, so the saver is constructed eagerly and cached per manager instance.
 
-Session scoping — the underlying saver keys every session by
-``(thread_id, actor_id)`` and **requires** ``configurable.actor_id`` on every
-operation. dao-ai reaches the checkpointer from several places that only carry a
-``thread_id`` (``get_state_snapshot_async``, the Apps session helpers, LangGraph
-internals), so :class:`_SessionScopedSaver` deterministically derives
-``actor_id`` from the always-present ``thread_id`` before delegating. This keeps
-writes and every read path on the same session key with no changes to callers.
-Client identity (``user_id`` / its ``actor_id`` alias) is handled separately in
-``models.py`` and drives memory/prompts, not the checkpoint partition.
+Session scoping — the saver resolves a session by ``session_id`` (derived from
+``thread_id`` + ``checkpoint_ns``) and uses ``actor_id`` only to label the actor
+that *owns* a session at creation; it still **requires** a non-empty
+``configurable.actor_id`` on every call. dao-ai reaches the checkpointer from
+several places that only carry a ``thread_id`` (``get_state_snapshot_async``, the
+Apps session helpers, LangGraph internals), so :class:`_SessionScopedSaver`
+**defaults** ``actor_id`` to the ``thread_id`` when the caller didn't supply one —
+mirroring the library's own ``thread_config`` (``actor or session_id``). A
+supplied ``actor_id`` (e.g. the signed-in user, set in ``models.py`` from the
+``user_id``/``actor_id`` identity) is respected, so a user's sessions can be owned
+by them; because lookup is by ``session_id``, the ``thread_id``-only read paths
+still resolve the same session regardless.
 """
 
 from __future__ import annotations
@@ -42,14 +45,20 @@ from dao_ai.memory.base import CheckpointManagerBase
 
 
 def _scope_config(config: Optional[RunnableConfig]) -> Optional[RunnableConfig]:
-    """Return ``config`` with ``configurable.actor_id`` pinned to its ``thread_id``.
+    """Default ``configurable.actor_id`` to the ``thread_id`` when none was supplied.
 
-    Leaves the input untouched when there is no ``thread_id`` to derive from (the
-    underlying saver raises its own clear error for that case).
+    Mirrors the library's ``thread_config`` (``actor_id = actor or session_id``):
+    a caller-supplied ``actor_id`` is respected (per-user session ownership), and
+    the ``thread_id``-only paths get ``actor_id = thread_id`` so the saver's
+    non-empty-``actor_id`` requirement is met. Left untouched when an ``actor_id``
+    is already present or there is no ``thread_id`` to derive from (the saver
+    raises its own clear error for the latter).
     """
     if not config:
         return config
     configurable: dict[str, Any] = config.get("configurable") or {}
+    if configurable.get("actor_id"):
+        return config
     thread_id: Any = configurable.get("thread_id")
     if thread_id is None:
         return config
@@ -60,12 +69,13 @@ def _scope_config(config: Optional[RunnableConfig]) -> Optional[RunnableConfig]:
 
 
 class _SessionScopedSaver(BaseCheckpointSaver):
-    """Wraps ``DatabricksSessionStoreSaver`` to pin ``actor_id`` to ``thread_id``.
+    """Wraps ``DatabricksSessionStoreSaver`` to default ``actor_id`` to ``thread_id``.
 
     Every config-bearing method normalizes the config (via :func:`_scope_config`)
-    before delegating, so dao-ai's various checkpointer entry points stay on one
-    consistent session key. Any attribute not overridden here forwards to the
-    wrapped saver.
+    before delegating: a supplied ``actor_id`` is respected; otherwise it defaults
+    to the ``thread_id`` so the saver's non-empty-``actor_id`` requirement is met on
+    dao-ai's ``thread_id``-only paths. Any attribute not overridden here forwards to
+    the wrapped saver.
     """
 
     def __init__(self, inner: BaseCheckpointSaver) -> None:
