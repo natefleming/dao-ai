@@ -76,6 +76,11 @@ dependencies = [
     "psycopg[binary,pool]>=3.3.2",
     "pydantic>=2.12.5",
     "python-dotenv>=1.2.1",
+    # Core, not transitive-only: dao_ai/tools/time.py imports pytz unconditionally
+    # (loaded via dao_ai.tools on every deploy). Declaring it ensures fresh installs
+    # — notably Databricks Apps, which install only dao-ai's declared deps from the
+    # bundled wheel — get pytz instead of crashing on import.
+    "pytz>=2024.1",
     "pyyaml>=6.0.2",
     "rfc8785>=0.1.4",
     "ruamel.yaml>=0.18,<0.19",

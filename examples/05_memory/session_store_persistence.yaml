@@ -117,14 +117,6 @@ app:
   description: "Chat agent with Databricks Session Store checkpointing + memory tools"
   log_level: INFO
 
-  # dao-ai's tools/time.py imports pytz unconditionally, but pytz is a
-  # transitive-only (undeclared) dependency. Databricks Apps install dao-ai's
-  # *declared* deps from the bundled wheel, so pytz is absent there and the
-  # backend crashes on import. Declaring it here installs it into the Apps
-  # requirements. (Model Serving captures the full env, so it is unaffected.)
-  pip_requirements:
-  - pytz
-
   registered_model:
     schema: *demo_schema
     name: session_store_dao
