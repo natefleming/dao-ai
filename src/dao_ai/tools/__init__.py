@@ -26,6 +26,10 @@ from dao_ai.tools.responses_agent import create_responses_agent_tool
 from dao_ai.tools.rest_api import create_rest_api_tool
 from dao_ai.tools.search import create_search_tool
 from dao_ai.tools.serving_endpoint_dispatcher import create_serving_endpoint_dispatcher
+from dao_ai.tools.session_store import (
+    AgentbricksMemoryToolkit,
+    create_agentbricks_memory_tools,
+)
 from dao_ai.tools.slack import create_send_slack_message_tool
 from dao_ai.tools.sql import (
     create_execute_statement_tool,
@@ -87,6 +91,8 @@ __all__ = [
     "resolve_tool_names",
     "create_uc_tools",
     "create_ai_search_tool",
+    "create_agentbricks_memory_tools",
+    "AgentbricksMemoryToolkit",
     "create_lakebase_search_tool",
     "create_vector_search_tool",
     "create_visualization_tool",

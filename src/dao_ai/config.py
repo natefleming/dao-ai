@@ -6163,6 +6163,7 @@ class FunctionType(str, Enum):
     SERVING_ENDPOINT = "serving_endpoint"
     A2A = "a2a"
     SQL = "sql"
+    AGENTBRICKS_MEMORY = "agentbricks_memory"
 
 
 class ParamSource(str, Enum):
@@ -7899,6 +7900,51 @@ class A2AToolModel(BaseFunctionModel):
         return [create_a2a_agent_tool(**factory_kwargs)]
 
 
+class AgentbricksMemoryToolModel(BaseFunctionModel):
+    """First-class long-term memory tools backed by Databricks Agents Managed Memory.
+
+    Wraps ``databricks_agentkit.langgraph.memory_tools`` (from the
+    ``databricks-agentbricks`` package), which returns two tools — ``remember``
+    and ``recall`` — persisting to the Databricks Agents Managed Memory API.
+    Equivalent to ``type: factory`` pointing at the wrapper, but with typed
+    fields.
+
+    This is distinct from the agent's auto-attached long-term ``store`` tools:
+    it is an explicit, config-selected tool the agent calls to persist and
+    retrieve facts for a given ``actor``.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    type: Literal[FunctionType.AGENTBRICKS_MEMORY] = Field(
+        default=FunctionType.AGENTBRICKS_MEMORY,
+        description="Function type discriminator. Must be 'agentbricks_memory'.",
+    )
+    store: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Databricks Agents memory-store name. When omitted, resolves from "
+            "the AGENT_MEMORY_STORE environment variable."
+        ),
+    )
+    actor: Optional[AnyVariable] = Field(
+        default=None,
+        description=(
+            "Identity that owns the memories — a single partition captured in the "
+            "tool closures for the life of the built agent (NOT per request), not "
+            "exposed to the model. When omitted, the ambient deploy/OBO identity is "
+            "resolved. In a multi-user deployment set this per deployment to avoid "
+            "co-mingling callers' memories."
+        ),
+    )
+
+    def as_tools(self, **kwargs: Any) -> Sequence[RunnableLike]:
+        from dao_ai.tools import create_agentbricks_memory_tools
+
+        return create_agentbricks_memory_tools(
+            store=self.store, actor=self.actor
+        ).get_tools()
+
+
 AnyTool: TypeAlias = (
     Union[
         PythonFunctionModel,
@@ -7914,6 +7960,7 @@ AnyTool: TypeAlias = (
         AppToolModel,
         ServingEndpointToolModel,
         A2AToolModel,
+        AgentbricksMemoryToolModel,
     ]
     | str
 )
@@ -8144,6 +8191,7 @@ class StorageType(str, Enum):
     POSTGRES = "postgres"
     MEMORY = "memory"
     AGENT_MEMORY = "agent_memory"
+    SESSION_STORE = "session_store"
 
 
 class MemoryStoreModel(IsDatabricksResource, HasFullName):
@@ -8218,6 +8266,24 @@ class MemoryStoreModel(IsDatabricksResource, HasFullName):
         return []
 
 
+class SessionStoreModel(BaseModel):
+    """Databricks Session Store reference backing a LangGraph checkpointer.
+
+    Selects the Databricks **Session Store** backend for a
+    :class:`CheckpointerModel`. The store persists LangGraph thread state
+    (channel blobs, versions, pending writes) via the Session Store REST API,
+    using ``databricks_agentkit.langgraph.session_store.DatabricksSessionStoreSaver``.
+
+    The saver resolves its workspace client from the ambient runtime, so all
+    four dao-ai auth modes work unchanged — only the store name is required.
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+    name: AnyVariable = Field(
+        description="Databricks Session Store name backing the checkpointer.",
+    )
+
+
 class CheckpointerModel(BaseModel):
     """Conversation state checkpointer for persisting LangGraph thread state across turns."""
 
@@ -8229,10 +8295,26 @@ class CheckpointerModel(BaseModel):
         default=None,
         description="Database for persistent storage. If omitted, uses in-memory storage (lost on restart).",
     )
+    session_store: Optional[SessionStoreModel] = Field(
+        default=None,
+        description="Databricks Session Store backend. Mutually exclusive with 'database'.",
+    )
+
+    @model_validator(mode="after")
+    def _validate_backend_exclusive(self) -> Self:
+        if self.database is not None and self.session_store is not None:
+            raise ValueError(
+                "A checkpointer cannot set both 'database' and 'session_store'; "
+                "choose one backend (Postgres/Lakebase via 'database', or "
+                "Databricks Session Store via 'session_store')."
+            )
+        return self
 
     @property
     def storage_type(self) -> StorageType:
-        """Infer storage type from database presence."""
+        """Infer storage type from the configured backend."""
+        if self.session_store:
+            return StorageType.SESSION_STORE
         return StorageType.POSTGRES if self.database else StorageType.MEMORY
 
     def as_checkpointer(self) -> BaseCheckpointSaver:

@@ -816,8 +816,14 @@ class LanggraphChatModel(ChatModel):
             if "configurable" in custom_inputs:
                 configurable = custom_inputs.pop("configurable")
 
-        # Extract known Context fields
+        # Extract known Context fields. ``user_id`` and ``actor_id`` are aliases
+        # for the same caller identity: accept either from the client so a
+        # checkpointer backend that speaks ``actor_id`` (Databricks Session Store)
+        # can be swapped in without changing client payloads.
         user_id: str | None = configurable.pop("user_id", None)
+        actor_id: str | None = configurable.pop("actor_id", None)
+        if not user_id:
+            user_id = actor_id
 
         # Fall back to the OBO identity headers (set by Databricks Apps),
         # preferring the login name over the numeric x-forwarded-user id.
@@ -2159,8 +2165,14 @@ class LanggraphResponsesAgent(ResponsesAgent):
                 if key not in ("configurable", "session"):
                     configurable[key] = request.custom_inputs[key]
 
-        # Extract known Context fields
+        # Extract known Context fields. ``user_id`` and ``actor_id`` are aliases
+        # for the same caller identity: accept either from the client so a
+        # checkpointer backend that speaks ``actor_id`` (Databricks Session Store)
+        # can be swapped in without changing client payloads.
         user_id_value: str | None = configurable.pop("user_id", None)
+        actor_id_value: str | None = configurable.pop("actor_id", None)
+        if not user_id_value:
+            user_id_value = actor_id_value
 
         # Fall back to the OBO identity headers (set by Databricks Apps),
         # preferring the login name over the numeric x-forwarded-user id, when
