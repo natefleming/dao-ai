@@ -1206,13 +1206,15 @@ def validate_app_space(
         for r in space.resources or []
         if (identity := _resource_identity(r.as_dict())) is not None
     }
-    missing_resources: list[str] = [
-        f"{identity[0]} {identity[1]} (resource '{r.get('name')}')"
+    missing: list[tuple[str, str]] = [
+        (identity[0], f"{identity[0]} {identity[1]} (resource '{r.get('name')}')")
         for r in resources
         if (identity := _resource_identity(r)) is not None
         and identity[0] != "experiment"
         and identity not in shared
     ]
+    missing_secrets: list[str] = [d for kind, d in missing if kind == "secret"]
+    missing_resources: list[str] = [d for kind, d in missing if kind != "secret"]
     if missing_resources:
         problems.append(
             "Apps in an App Space cannot declare app resources, and the "
@@ -1220,6 +1222,14 @@ def validate_app_space(
             f"space admin to share them on App Space '{space_name}', or "
             "set on_behalf_of_user: true on those resources so they are "
             "accessed as the signed-in user (within the space's scopes)."
+        )
+    if missing_secrets:
+        problems.append(
+            "Apps in an App Space cannot declare secret resources, and the "
+            f"space does not share: {missing_secrets}. Use a Unity Catalog "
+            "secret instead (resolved at runtime with the app's own identity, "
+            "which needs READ SECRET on it — dao-ai grants that on the "
+            "--direct deploy path), or ask the space admin to share them."
         )
 
     if problems:

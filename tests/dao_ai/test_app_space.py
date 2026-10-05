@@ -137,9 +137,7 @@ class TestAppSpaceConfig:
         assert app.app_space.resolved_name == "new"
 
     def test_round_trips_through_yaml(self) -> None:
-        dumped = _app(app_space="team-space").model_dump(
-            exclude_none=True
-        )
+        dumped = _app(app_space="team-space").model_dump(exclude_none=True)
         assert dumped["app_space"] == {"name": "team-space"}
         reparsed = AppModel(**yaml.safe_load(yaml.safe_dump(dumped)))
         assert reparsed.app_space.resolved_name == "team-space"
@@ -205,6 +203,19 @@ class TestValidateAppSpace:
     def test_experiment_resource_is_exempt(self) -> None:
         w = _client(_space())
         validate_app_space(_config(), [EXPERIMENT], [], w=w)
+
+    def test_missing_secret_resource_suggests_uc_secret(self) -> None:
+        secret = {
+            "name": "s_k",
+            "secret": {"scope": "s", "key": "k", "permission": "READ"},
+        }
+        w = _client(_space())
+        with pytest.raises(ValueError) as exc:
+            validate_app_space(_config(), [secret], [], w=w)
+        message = str(exc.value)
+        assert "secret s/k" in message
+        assert "Unity Catalog secret" in message
+        assert "on_behalf_of_user" not in message
 
     def test_all_problems_reported_together(self) -> None:
         config = _config(
