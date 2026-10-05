@@ -170,6 +170,22 @@ class HasFullName(ABC):
     def full_name(self) -> str: ...
 
 
+class HasSchemaQualifiedName(HasFullName):
+    """``full_name`` derived from a ``schema_model`` and a ``name``.
+
+    With a schema, ``catalog.schema.name`` (or ``catalog.schema`` when
+    ``name`` is unset). Without one, ``name`` verbatim, which may already be
+    fully qualified (e.g. ``system.ai.claude-sonnet-4-5``).
+    """
+
+    @property
+    def full_name(self) -> str:
+        if self.schema_model:
+            name: str = f".{self.name}" if self.name else ""
+            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
+        return self.name
+
+
 class EnvironmentVariableModel(BaseModel, HasValue):
     """A variable resolved from an environment variable at runtime."""
 
@@ -987,7 +1003,7 @@ class DatabricksAppModel(IsDatabricksResource, HasFullName):
         ]
 
 
-class TableModel(IsDatabricksResource, HasFullName):
+class TableModel(IsDatabricksResource, HasSchemaQualifiedName):
     """Unity Catalog table reference. Provide a fully qualified name or a schema + table name."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1009,14 +1025,6 @@ class TableModel(IsDatabricksResource, HasFullName):
             )
         return self
 
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            name: str = ""
-            if self.name:
-                name = f".{self.name}"
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
-        return self.name
 
     @property
     def api_scopes(self) -> Sequence[str]:
@@ -1148,7 +1156,7 @@ class ChatUnityAIGateway(ChatDatabricks):
         return "chat-unity-ai-gateway"
 
 
-class InferenceEndpointModel(IsDatabricksResource, HasFullName):
+class InferenceEndpointModel(IsDatabricksResource, HasSchemaQualifiedName):
     """Configuration for a Databricks Model Serving endpoint used for inference.
 
     This is the single config type for *any* serving endpoint dao-ai calls at
@@ -1353,18 +1361,6 @@ class InferenceEndpointModel(IsDatabricksResource, HasFullName):
             "serving.serving-endpoints",
         ]
 
-    @property
-    def full_name(self) -> str:
-        """The model identifier dao-ai sends to the serving layer.
-
-        With ``schema`` set, the UC-securable three-level name. Without it,
-        ``name`` verbatim — which is what every existing config resolves to,
-        whether that is a serving endpoint name (``databricks-claude-sonnet-4-5``)
-        or an already-qualified model name (``system.ai.claude-sonnet-4-5``).
-        """
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
 
     @property
     def uri(self) -> str:
@@ -1600,7 +1596,7 @@ VectorSearchEndpointType = AiSearchEndpointType
 VectorSearchEndpoint = AiSearchEndpoint
 
 
-class IndexModel(IsDatabricksResource, HasFullName):
+class IndexModel(IsDatabricksResource, HasSchemaQualifiedName):
     """Model representing a Databricks Vector Search index."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1619,11 +1615,6 @@ class IndexModel(IsDatabricksResource, HasFullName):
             "vectorsearch.vector-search-indexes",
         ]
 
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
 
     def as_resources(self) -> Sequence[DatabricksResource]:
         return [
@@ -1649,7 +1640,7 @@ class IndexModel(IsDatabricksResource, HasFullName):
             return False
 
 
-class FunctionModel(IsDatabricksResource, HasFullName):
+class FunctionModel(IsDatabricksResource, HasSchemaQualifiedName):
     """Unity Catalog function reference. Provide a fully qualified name or a schema + function name."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -1671,14 +1662,6 @@ class FunctionModel(IsDatabricksResource, HasFullName):
             )
         return self
 
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            name: str = ""
-            if self.name:
-                name = f".{self.name}"
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}{name}"
-        return self.name
 
     def exists(self) -> bool:
         """Check if the function exists in Unity Catalog.
@@ -3400,7 +3383,7 @@ def _identifier_of(entry: Any) -> str | None:
     return None
 
 
-class VolumeModel(IsDatabricksResource, HasFullName, Provisionable):
+class VolumeModel(IsDatabricksResource, HasSchemaQualifiedName, Provisionable):
     """Unity Catalog volume reference for file storage."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -3413,11 +3396,6 @@ class VolumeModel(IsDatabricksResource, HasFullName, Provisionable):
         description="Volume name (short) or fully qualified name (catalog.schema.volume).",
     )
 
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
 
     def create(self, w: WorkspaceClient | None = None) -> None:
         from dao_ai.providers.base import ServiceProvider
@@ -7945,25 +7923,91 @@ class AgentbricksMemoryToolModel(BaseFunctionModel):
         ).get_tools()
 
 
-AnyTool: TypeAlias = (
+# Every concrete tool model. Also the fallback for input that omits ``type``,
+# which pydantic resolves by trying each member in order.
+_AnyToolModel: TypeAlias = Union[
+    PythonFunctionModel,
+    FactoryFunctionModel,
+    InlineFunctionModel,
+    UnityCatalogFunctionModel,
+    McpFunctionModel,
+    GenieToolModel,
+    AiSearchToolModel,
+    LakebaseSearchToolModel,
+    SqlToolModel,
+    SearchToolModel,
+    AppToolModel,
+    ServingEndpointToolModel,
+    A2AToolModel,
+    AgentbricksMemoryToolModel,
+]
+
+_UNTYPED_TOOL_TAG: Final[str] = "untyped"
+_TOOL_REFERENCE_TAG: Final[str] = "reference"
+
+
+def _tool_discriminator(v: Any) -> str:
+    """Callable discriminator for :data:`AnyTool`.
+
+    Dispatches on the ``type`` field so a malformed tool reports errors for
+    its own model only, instead of one error per union member. ``type`` is
+    optional on every tool model (each has a Literal default), so input that
+    omits it routes to the untyped branch, which keeps the original
+    first-match-by-shape resolution. ``vector_search`` is the legacy alias
+    for ``ai_search``.
+    """
+    if isinstance(v, str):
+        return _TOOL_REFERENCE_TAG
+    raw = v.get("type") if isinstance(v, dict) else getattr(v, "type", None)
+    if raw is None:
+        return _UNTYPED_TOOL_TAG
+    tag: str = raw.value if isinstance(raw, FunctionType) else str(raw)
+    if tag == FunctionType.VECTOR_SEARCH.value:
+        return FunctionType.AI_SEARCH.value
+    return tag
+
+
+class _UntypedToolJsonSchema:
+    """Emit :data:`AnyTool` as a plain ``anyOf`` in the JSON schema.
+
+    The callable discriminator renders as ``oneOf``, and the untyped
+    fallback branch overlaps every typed branch, so editors validating YAML
+    against that schema would reject valid tools. Dropping the fallback and
+    using ``anyOf`` keeps the published schema unchanged.
+    """
+
+    def __get_pydantic_json_schema__(
+        self, core_schema: Any, handler: Any
+    ) -> dict[str, Any]:
+        schema: dict[str, Any] = handler(core_schema)
+        schema["anyOf"] = [alt for alt in schema.pop("oneOf") if "anyOf" not in alt]
+        return schema
+
+
+AnyTool: TypeAlias = Annotated[
     Union[
-        PythonFunctionModel,
-        FactoryFunctionModel,
-        InlineFunctionModel,
-        UnityCatalogFunctionModel,
-        McpFunctionModel,
-        GenieToolModel,
-        AiSearchToolModel,
-        LakebaseSearchToolModel,
-        SqlToolModel,
-        SearchToolModel,
-        AppToolModel,
-        ServingEndpointToolModel,
-        A2AToolModel,
-        AgentbricksMemoryToolModel,
-    ]
-    | str
-)
+        Annotated[PythonFunctionModel, Tag(FunctionType.PYTHON.value)],
+        Annotated[FactoryFunctionModel, Tag(FunctionType.FACTORY.value)],
+        Annotated[InlineFunctionModel, Tag(FunctionType.INLINE.value)],
+        Annotated[UnityCatalogFunctionModel, Tag(FunctionType.UNITY_CATALOG.value)],
+        Annotated[McpFunctionModel, Tag(FunctionType.MCP.value)],
+        Annotated[GenieToolModel, Tag(FunctionType.GENIE.value)],
+        Annotated[AiSearchToolModel, Tag(FunctionType.AI_SEARCH.value)],
+        Annotated[LakebaseSearchToolModel, Tag(FunctionType.LAKEBASE_SEARCH.value)],
+        Annotated[SqlToolModel, Tag(FunctionType.SQL.value)],
+        Annotated[SearchToolModel, Tag(FunctionType.SEARCH.value)],
+        Annotated[AppToolModel, Tag(FunctionType.APP.value)],
+        Annotated[ServingEndpointToolModel, Tag(FunctionType.SERVING_ENDPOINT.value)],
+        Annotated[A2AToolModel, Tag(FunctionType.A2A.value)],
+        Annotated[
+            AgentbricksMemoryToolModel, Tag(FunctionType.AGENTBRICKS_MEMORY.value)
+        ],
+        Annotated[_AnyToolModel, Tag(_UNTYPED_TOOL_TAG)],
+        Annotated[str, Tag(_TOOL_REFERENCE_TAG)],
+    ],
+    Discriminator(_tool_discriminator),
+    _UntypedToolJsonSchema(),
+]
 
 
 class ToolModel(BaseModel):
@@ -9697,7 +9741,7 @@ class OrchestrationModel(BaseModel):
         return self
 
 
-class RegisteredModelModel(BaseModel, HasFullName):
+class RegisteredModelModel(BaseModel, HasSchemaQualifiedName):
     """Unity Catalog registered model where the agent artifact is logged."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -9710,11 +9754,6 @@ class RegisteredModelModel(BaseModel, HasFullName):
         description="Registered model name (short) or fully qualified (catalog.schema.model).",
     )
 
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
 
 
 class Entitlement(str, Enum):
@@ -11425,7 +11464,7 @@ class EvaluationDatasetEntryModel(BaseModel):
         return result
 
 
-class EvaluationDatasetModel(BaseModel, HasFullName):
+class EvaluationDatasetModel(BaseModel, HasSchemaQualifiedName):
     """An MLflow evaluation dataset containing input/expectation pairs."""
 
     model_config = ConfigDict(use_enum_values=True, extra="forbid")
@@ -11474,11 +11513,6 @@ class EvaluationDatasetModel(BaseModel, HasFullName):
 
         return evaluation_dataset
 
-    @property
-    def full_name(self) -> str:
-        if self.schema_model:
-            return f"{self.schema_model.catalog_name}.{self.schema_model.schema_name}.{self.name}"
-        return self.name
 
 
 class OptimizationsModel(BaseModel):
