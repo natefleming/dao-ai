@@ -118,13 +118,7 @@ def _register_single_prompt(mcp: FastMCP, prompt: McpPromptModel) -> None:
         ]
 
     mcp.add_prompt(
-        Prompt.from_function(
-            _render,
-            name=prompt_name,
-            description=prompt_description,
-        )
-        if False
-        else Prompt(
+        Prompt(
             name=prompt_name,
             description=prompt_description,
             arguments=arg_schema,
