@@ -541,6 +541,7 @@ def test_create_agent_sets_experiment():
     # (which calls set_experiment a second time with trace_location=UC(...)).
     # This test covers the "no trace_location" baseline.
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_config.app = mock_app
 
     # Mock resources
@@ -625,6 +626,7 @@ def test_create_agent_does_not_mutate_config_pip_requirements():
     mock_app.pip_requirements = declared
     mock_app.input_example = None
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_config.app = mock_app
 
     mock_resources = MagicMock()
@@ -836,6 +838,7 @@ def test_create_agent_local_source_no_wheel_no_source_raises():
     mock_app.pip_requirements = []
     mock_app.input_example = None
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_config.app = mock_app
 
     mock_resources = MagicMock()
@@ -901,6 +904,7 @@ def test_deploy_agent_sets_endpoint_tag():
     mock_app.tags = {"custom_tag": "custom_value"}
     mock_app.permissions = []
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
 
     mock_config.app = mock_app
@@ -965,6 +969,7 @@ def test_deploy_model_serving_omits_tags_when_serving_endpoint_exists():
     mock_app.tags = {"custom_tag": "x"}
     mock_app.permissions = []
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_config.app = mock_app
     mock_config.resources = None
@@ -1198,6 +1203,7 @@ def test_deploy_apps_agent_creates_new_app():
     mock_app.description = "Test app description"
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_app.apps_compute_size.return_value = "LARGE"
@@ -1267,6 +1273,116 @@ def test_deploy_apps_agent_creates_new_app():
 
 
 @pytest.mark.unit
+def test_deploy_apps_agent_in_app_space():
+    """An in-space app is created with ``space`` and WITHOUT resources,
+    user_api_scopes or compute_size (the Apps API rejects them on an in-space
+    app), and its app.yaml pins MLFLOW_EXPERIMENT_ID literally because there is
+    no ``experiment`` app resource for ``valueFrom`` to bind to."""
+    import yaml
+    from unittest.mock import MagicMock, patch
+
+    from databricks.sdk.errors.platform import NotFound
+    from databricks.sdk.service.apps import (
+        App,
+        AppDeployment,
+        AppDeploymentState,
+        ApplicationState,
+        Space,
+    )
+    from databricks.sdk.service.iam import User
+
+    from dao_ai.config import AppConfig, AppModel, AppSpaceModel
+    from dao_ai.providers.databricks import DatabricksProvider
+
+    mock_config = MagicMock(spec=AppConfig)
+    mock_app = MagicMock(spec=AppModel)
+    mock_app.name = "space_app"
+    mock_app.description = "in-space app"
+    mock_app.environment_vars = {}
+    mock_app.trace_location = None
+    mock_app.app_space = AppSpaceModel(name="team-space")
+    mock_app.monitoring = None
+    mock_app.enable_chat_proxy = True
+    mock_app.manage_permissions = False
+    mock_app.apps_compute_size.return_value = None
+    mock_config.app = mock_app
+    mock_config.source_config_path = None
+    mock_config._source_config_path = None
+    mock_config.rendered_yaml = None
+    mock_config.model_dump.return_value = {"app": {"name": "space_app"}}
+    mock_config.resources = None
+    mock_config.agents = None
+    mock_config.retrievers = None
+
+    mock_created_app = MagicMock(spec=App)
+    mock_created_app.name = "space-app"
+    mock_created_app.url = "https://space-app.databricks.com"
+    mock_created_app.app_status = MagicMock()
+    mock_created_app.app_status.state = ApplicationState.RUNNING
+
+    mock_deployment = MagicMock(spec=AppDeployment)
+    mock_deployment.deployment_id = "dep-1"
+    mock_deployment.status = MagicMock()
+    mock_deployment.status.state = AppDeploymentState.SUCCEEDED
+
+    mock_user = MagicMock(spec=User)
+    mock_user.user_name = "test.user@example.com"
+
+    with (
+        patch.object(DatabricksProvider, "__init__", return_value=None),
+        patch(
+            "dao_ai.apps.resources.validate_app_space",
+            return_value=Space(name="team-space"),
+        ) as validate,
+        patch(
+            "dao_ai.apps.resources.generate_user_api_scopes",
+            return_value=["genie"],
+        ),
+    ):
+        provider = DatabricksProvider()
+        provider.w = MagicMock()
+        provider.w.current_user.me.return_value = mock_user
+        mock_experiment = MagicMock()
+        mock_experiment.experiment_id = "12345"
+        with patch.object(
+            provider, "get_or_create_experiment", return_value=mock_experiment
+        ):
+            provider.w.apps.get.side_effect = [
+                NotFound("not created yet"),  # assert_app_space_unchanged
+                NotFound("App not found"),  # create-or-update check
+                mock_created_app,
+            ]
+            provider.w.api_client.do.return_value = {"name": "space-app"}
+            provider.w.apps.wait_get_app_active.return_value = mock_created_app
+            provider.w.apps.deploy_and_wait.return_value = mock_deployment
+
+            _stamp_extras_resolvable(mock_config)
+            provider.deploy_apps_agent(mock_config)
+
+    validate.assert_called_once()
+    create_call = provider.w.api_client.do.call_args_list[0]
+    assert create_call.args[:2] == ("POST", "/api/2.0/apps")
+    body = create_call.kwargs["body"]
+    assert body["space"] == "team-space"
+    for rejected in ("resources", "user_api_scopes", "compute_size"):
+        assert rejected not in body
+    # No follow-up user_api_scopes PATCH on an in-space app.
+    assert all(c.args[0] != "PATCH" for c in provider.w.api_client.do.call_args_list)
+
+    app_yaml = next(
+        c.kwargs["content"].getvalue().decode()
+        for c in provider.w.workspace.upload.call_args_list
+        if c.kwargs["path"].endswith("/app.yaml")
+    )
+    env = {e["name"]: e for e in yaml.safe_load(app_yaml)["env"]}
+    assert env["MLFLOW_EXPERIMENT_ID"] == {
+        "name": "MLFLOW_EXPERIMENT_ID",
+        "value": "12345",
+    }
+    assert "resources" not in yaml.safe_load(app_yaml)
+
+
+@pytest.mark.unit
 def test_deploy_apps_agent_warehouse_permission_degrades_gracefully():
     """When the deployer lacks CAN MANAGE on a warehouse, adding the sql_warehouse
     App resource fails with "MANAGE permission on the resource". Rather than abort,
@@ -1293,6 +1409,7 @@ def test_deploy_apps_agent_warehouse_permission_degrades_gracefully():
     mock_app.description = "wh degrade"
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_app.apps_compute_size.return_value = None
@@ -1393,6 +1510,7 @@ def test_deploy_apps_agent_non_warehouse_permission_error_aborts():
     mock_app.description = "d"
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_app.apps_compute_size.return_value = None
@@ -1479,6 +1597,7 @@ def test_deploy_apps_agent_degrade_surfaces_real_retry_error():
     mock_app.description = "d"
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_app.apps_compute_size.return_value = None
@@ -1554,6 +1673,7 @@ def test_deploy_apps_agent_updates_existing_app():
     mock_app.description = "Test app description"
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_app.apps_compute_size.return_value = "LARGE"
@@ -1649,6 +1769,7 @@ def test_deploy_apps_agent_uploads_rendered_yaml(tmp_path):
     mock_app.description = ""
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_config.app = mock_app
@@ -1727,6 +1848,7 @@ def test_deploy_apps_agent_uploads_python_version(tmp_path):
     mock_app.description = ""
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_config.app = mock_app
@@ -1805,6 +1927,7 @@ def test_deploy_apps_agent_stages_skills_and_code(tmp_path):
     mock_app.description = ""
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_config.app = mock_app
@@ -1878,6 +2001,7 @@ def test_deploy_apps_agent_falls_back_to_source_when_no_rendered_yaml(tmp_path):
     mock_app.description = ""
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_config.app = mock_app
@@ -1952,6 +2076,7 @@ def test_deploy_apps_agent_serializes_python_built_config(tmp_path):
     mock_app.description = ""
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     mock_config.app = mock_app
@@ -3394,6 +3519,7 @@ def test_set_databricks_env_vars_no_trace_vars_without_trace_location():
     mock_app.environment_vars = {}
     mock_app.service_principal = None
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.experiment = None
 
     with patch(
@@ -3511,6 +3637,7 @@ def test_deploy_apps_agent_uploads_pyproject_with_dao_ai_version_pin(tmp_path):
     mock_app.description = ""
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     # Skip the permission-grant branch (would touch unstubbed SDK surfaces).
@@ -3648,6 +3775,7 @@ def test_deploy_apps_agent_dev_path_ships_uv_lock(tmp_path):
     mock_app.description = ""
     mock_app.environment_vars = {}
     mock_app.trace_location = None
+    mock_app.app_space = None
     mock_app.monitoring = None
     mock_app.enable_chat_proxy = True
     # Skip the permission-grant branch (would touch unstubbed SDK surfaces).

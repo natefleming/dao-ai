@@ -1,0 +1,124 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: dao_ai_workshop
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-claude-sonnet-5
+  app_space:
+    description: Existing Databricks App Space to deploy into
+    default: retail-builders
+  genie_space_id:
+    description: Genie space (agent) id queried on behalf of the user
+    default: 01f1539922fb11589359396ac14a7936
+
+# =============================================================================
+# App Space Deployment (Databricks Apps, Beta) — EXPERIMENTAL
+# =============================================================================
+# NOTE: As of the App Spaces Beta, apps in a space build with pip on Python
+# 3.11 only, so this agent (dao-ai needs Python >= 3.12) deploys but cannot
+# start yet. Kept ready for when spaces support custom-code apps.
+#
+# Deploys the agent INTO an existing App Space. The space admin governs what
+# apps in the space may do. The app inherits the space's on-behalf-of-user
+# (OBO) scopes and cannot declare its own scopes or app resources, so:
+#
+# - every resource is on_behalf_of_user: true (queries run as the signed-in
+#   user, within the space's scopes), and
+# - the scopes those resources need must be allowed by the space. Genie
+#   (`genie`) and model serving (`model-serving`) are both in the default
+#   "Data + AI" preset.
+#
+# Before deploying, dao-ai checks this config against the live space. It fails
+# with one checklist covering anything the space does not grant.
+#
+# Prerequisites:
+# - "Governed agentic app-building" enabled on the workspace Previews page
+# - An App Space (Databricks Apps UI → App Spaces → New Space) where you have
+#   CAN CREATE APP
+#
+# Deploy:  dao-ai agent up -c examples/06_on_behalf_of_user/obo_app_space.yaml \
+#            --var app_space=<space> --var genie_space_id=<id>
+
+# =============================================================================
+# SCHEMAS
+# =============================================================================
+schemas:
+  demo_schema: &demo_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+# =============================================================================
+# RESOURCES
+# =============================================================================
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+      max_tokens: 4096
+      on_behalf_of_user: true      # needs the space's `model-serving` scope
+
+  genie_rooms:
+    merchandising_genie: &merchandising_genie
+      name: "Merchandising Analytics"
+      description: "Merchandising analytics queried as the signed-in user"
+      space_id: ${var.genie_space_id}
+      on_behalf_of_user: true      # needs the space's `genie` scope
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+tools:
+  merchandising_query: &merchandising_query
+    name: merchandising_query
+    function:
+      type: genie
+      name: merchandising_query
+      description: "Answer merchandising questions in natural language. Access follows the user's permissions."
+      genie_room: *merchandising_genie
+
+# =============================================================================
+# PROMPTS
+# =============================================================================
+prompts:
+  merchandising_prompt: &merchandising_prompt
+    name: merchandising_prompt
+    description: "Merchandising assistant running in an App Space"
+    template: |
+      You are a merchandising analyst assistant. Use the merchandising_query
+      tool to answer questions about products, sales, and inventory. Queries
+      run with the signed-in user's permissions, so if data is unavailable,
+      say so plainly.
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+agents:
+  merchandising_assistant: &merchandising_assistant
+    name: merchandising_assistant
+    model: *default_llm
+    tools:
+    - *merchandising_query
+    prompt: *merchandising_prompt
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+app:
+  name: obo_app_space
+  log_level: INFO
+  app_space: ${var.app_space}      # bare name, or {name: ...}
+  registered_model:
+    schema: *demo_schema
+    name: obo_app_space_dao
+  agents:
+  - *merchandising_assistant

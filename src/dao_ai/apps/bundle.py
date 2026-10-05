@@ -673,6 +673,39 @@ def _build_app_block(
 
     user_api_scopes = generate_user_api_scopes(config)
 
+    # App Space: the app inherits the space's scopes and may declare neither
+    # scopes nor resources (the Apps API rejects both), so validate the config
+    # against the live space and emit neither. Without the ``experiment`` app
+    # resource, ``MLFLOW_EXPERIMENT_ID`` is pinned to the experiment id and the
+    # App SP's CAN_EDIT is granted after deploy (``_link_and_grant_trace``).
+    space_name: str | None = None
+    if config.app.app_space is not None:
+        from databricks.sdk import WorkspaceClient
+
+        from dao_ai.apps.resources import (
+            assert_app_space_unchanged,
+            generate_deployment_resources,
+            validate_app_space,
+        )
+
+        w = WorkspaceClient()
+        validate_app_space(
+            config, generate_deployment_resources(config), user_api_scopes, w=w
+        )
+        space_name = config.app.app_space.resolved_name
+        assert_app_space_unchanged(w, app_name, space_name)
+        bundle_resources, user_api_scopes = [], []
+        experiment_ref: str = (
+            _external_experiment_id
+            or f"${{resources.experiments.{experiment_key}.id}}"
+        )
+        env_vars = [
+            {"name": "MLFLOW_EXPERIMENT_ID", "value": experiment_ref}
+            if e.get("name") == "MLFLOW_EXPERIMENT_ID"
+            else e
+            for e in env_vars
+        ]
+
     # Bare `python -m` — no `uv run` wrapper. Apps' native uv support runs
     # `uv sync --locked --no-dev` at BUILD phase and puts .venv/bin on PATH,
     # so the runtime `python` is already venv-python with dao-ai installed.
@@ -691,14 +724,19 @@ def _build_app_block(
             "command": app_command,
             "env": env_vars,
         },
-        "resources": bundle_resources,
     }
+    if bundle_resources:
+        app_def["resources"] = bundle_resources
 
     if user_api_scopes:
         app_def["user_api_scopes"] = user_api_scopes
 
-    if config.app.space:
-        app_def["space"] = config.app.space
+    if space_name:
+        app_def["space"] = space_name
+        # DABs creates apps with ``no_compute: true`` unless started, which the
+        # Apps API rejects for in-space apps; started mode (direct engine) is
+        # the only way to create one from a bundle.
+        app_def["lifecycle"] = {"started": True}
 
     # Coerce workload_size → Apps compute_size (None for Small/Medium leaves the
     # platform default MEDIUM; Large/XLarge set the tier). Raw string so XLARGE

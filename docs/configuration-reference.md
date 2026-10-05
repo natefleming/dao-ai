@@ -427,6 +427,7 @@ app:
   python_version: string           # default: "3.12"
   # deployment_target field removed — serving mode is chosen at deploy time via --mode (default apps)
   budget_policy_id: string         # Cost-attribution policy id
+  app_space: string                # Existing App Space (Beta) to create the App in; see "App Spaces"
   code_paths: [string]             # Extra Python files bundled with the model artifact
   pip_requirements: [string]       # Extra pip packages installed in the serving env
   tags: {}                          # Key-value tags on the registered model version
@@ -902,6 +903,90 @@ alongside the agent backend.
 |-------|-----------|
 | `true` (default) | The app runs both a Python backend (port 8000) and a Node.js chat frontend (port 3000). The MLflow `AgentServer` proxies browser requests to the frontend. The chat UI is the Databricks [e2e-chatbot-app-next](https://github.com/databricks/app-templates/tree/main/e2e-chatbot-app-next) template, cloned and built automatically at app startup (the Apps runtime has Node.js pre-installed). |
 | `false` | The app runs the Python backend only (`dao_ai.apps.server`). No chat UI. Useful for headless API endpoints or Model Serving deployments. |
+
+### App Spaces (`app_space`) — experimental
+
+> **Experimental, not yet usable for running agents.** dao-ai's App Spaces
+> support is in place for when spaces support custom-code apps. As of the App
+> Spaces Beta, apps in a space are built only by running
+> `pip install -r requirements.txt` on **Python 3.11**. `pyproject.toml` and
+> `uv.lock` are ignored, and the app has no public PyPI access. dao-ai requires
+> Python ≥ 3.12, so an in-space agent deploys but fails to start. The Beta
+> appears aimed at Genie App Builder (AppKit) apps. Verified on AWS with CLI
+> v1.19.0, 2026-10. Leaving `app_space` unset changes nothing for standalone
+> Apps or Model Serving deploys.
+>
+> Other known Beta limitations:
+> - The bundle path can *create* an in-space app (dao-ai emits
+>   `lifecycle.started: true`), but redeploying through DABs fails, because
+>   the CLI sends update fields that in-space apps reject. Redeploy with
+>   `dao-ai agent up --direct`.
+> - In-space apps scale to zero, so `--wait` can stall while the app is
+>   scaled down.
+
+An [App Space](https://docs.databricks.com/aws/en/dev-tools/databricks-apps/app-spaces)
+(Beta) is an admin-owned governance boundary for a group of Databricks Apps.
+The space admin decides, once, which on-behalf-of-user (OBO) scopes apps may
+request, who may create apps in the space, and which serverless usage policy
+applies. Every app created in the space inherits those settings. Set
+`app.app_space` to deploy the agent into an existing space:
+
+```yaml
+app:
+  name: retail_agent
+  app_space: retail-builders     # or {name: retail-builders}; formerly `space` (deprecated)
+```
+
+The workspace must have **Governed agentic app-building** enabled (Previews
+page). dao-ai never creates or edits spaces. `app_space` applies to the
+Databricks Apps target only; Model Serving ignores it.
+
+**What changes in a space.** The Apps API rejects `user_api_scopes` and app
+`resources` on an in-space app, so dao-ai declares neither. It validates the
+config against the live space before deploying, then fails with **one**
+checklist covering anything the space does not grant:
+
+| Check | Fails when | Fix |
+|---|---|---|
+| Space state | The space is missing or not `SPACE_ACTIVE` | Create the space, or wait for it to become active |
+| OBO scopes | A scope your `on_behalf_of_user` resources need isn't allowed by the space | Have the space admin add it, or drop `on_behalf_of_user` |
+| Service-principal resources | A resource the app would access as its own identity isn't shared by the space | Make the resource `on_behalf_of_user: true`, or have the space admin share it |
+| `app.service_principal` | Set (it is injected as `DATABRICKS_CLIENT_ID/SECRET` and replaces the app's identity) | Remove it for the Apps target |
+| `workload_size` | `Large` / `XLarge` (in-space apps have a fixed size) | Remove it, or use `Small`/`Medium` |
+
+Scope spellings are matched leniently: `dashboards.genie` ≡ `genie`,
+`files.files` ≡ `files`, and `serving.serving-endpoints` ≡ `model-serving`.
+That last pair hasn't yet been verified against a running in-space app. MCP
+companion scopes (`mcp.genie`, …) are only required when the config has MCP
+tools.
+
+**In practice an in-space agent accesses data on behalf of the user.** Beta
+spaces cannot share resources with their apps, so declare the agent's
+resources with `on_behalf_of_user: true`. Their scopes must also fall within
+the space's scopes. The default "Data + AI" preset covers Genie, model serving,
+AI Gateway, UC reads, files, and AI/MCP functions. It does not cover `sql` or
+vector search.
+
+**Identity and grants.** Each in-space app runs as its own auto-created service
+principal. dao-ai still grants it `CAN_EDIT` on the agent's MLflow experiment
+after deploy (`MLFLOW_EXPERIMENT_ID` is pinned to the experiment id, because
+there is no `experiment` app resource). If a space ever runs its apps as a
+shared, space-level principal, dao-ai skips its own grants and refuses an M2M
+`--as-service` connection, since either would widen access for every app in
+the space. Ask the space admin for those grants instead.
+
+**Runtime.** In-space apps are serverless micro apps:
+- They scale to zero after about 30 minutes idle, and the next request
+  cold-starts the agent.
+- They run as a single instance.
+- They have no public internet egress; packages install through the managed
+  proxy.
+- An in-memory checkpointer loses conversations when the app scales to zero,
+  so use Lakebase or the Session Store for durable memory.
+
+**An app's space is fixed at creation.** An existing app can't be moved into
+a space or between spaces. dao-ai refuses to redeploy an existing app whose
+space differs from `app_space`; run `dao-ai agent down`, then deploy again.
 
 ---
 

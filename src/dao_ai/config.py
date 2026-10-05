@@ -47,7 +47,7 @@ from databricks.sdk.credentials_provider import (
     ModelServingUserCredentials,
 )
 from databricks.sdk.errors.platform import NotFound
-from databricks.sdk.service.apps import App
+from databricks.sdk.service.apps import App, Space, SpaceStatusSpaceState
 from databricks.sdk.service.catalog import FunctionInfo, TableInfo
 from databricks.sdk.service.dashboards import GenieListSpacesResponse, GenieSpace
 from databricks.sdk.service.sql import GetWarehouseResponse
@@ -10204,6 +10204,81 @@ class ExperimentModel(BaseModel):
         provider.create_experiment(self)
 
 
+class AppSpaceModel(BaseModel):
+    """Reference an existing Databricks App Space (Beta).
+
+    An App Space is an admin-owned governance boundary: the space admin
+    defines the user-authorization scopes (and, where the workspace supports
+    it, shared resources and a usage policy) once, and every app created in
+    the space inherits them. dao-ai never creates or modifies spaces — it
+    deploys *into* one and fails fast when the config needs something the
+    space does not grant.
+
+    Reference-only, mirroring :class:`ExperimentModel`: the live space is
+    fetched lazily by :meth:`resolve` at deploy time, never at config-load
+    time. Accepts a bare string in YAML (``app_space: my-space``).
+    """
+
+    model_config = ConfigDict(use_enum_values=True, extra="forbid")
+
+    name: AnyVariable = Field(
+        description=(
+            "Name of an existing App Space (lowercase alphanumerics and "
+            "hyphens). Create it in the Databricks Apps UI (App Spaces → New "
+            "Space), the REST API, or Terraform ``databricks_app_space``."
+        ),
+    )
+
+    _space: Optional[Space] = PrivateAttr(default=None)
+
+    @property
+    def resolved_name(self) -> str:
+        return str(value_of(self.name))
+
+    def resolve(self, w: WorkspaceClient | None = None) -> Space:
+        """Fetch the live space, failing fast unless it exists and is ACTIVE.
+
+        Cached after the first successful call.
+
+        Raises:
+            ValueError: if the space does not exist or is not ``SPACE_ACTIVE``.
+        """
+        if self._space is not None:
+            return self._space
+        w = w or WorkspaceClient()
+        name: str = self.resolved_name
+        try:
+            space: Space = w.apps.get_space(name=name)
+        except NotFound as e:
+            raise ValueError(
+                f"App Space '{name}' does not exist in this workspace. Create "
+                "it first (Databricks Apps UI → App Spaces, the REST API, or "
+                "Terraform databricks_app_space) — dao-ai never creates "
+                "spaces. App Spaces is Beta and requires a workspace admin to "
+                "enable 'Governed agentic app-building' on the Previews page."
+            ) from e
+        state: Optional[SpaceStatusSpaceState] = (
+            space.status.state if space.status else None
+        )
+        if state != SpaceStatusSpaceState.SPACE_ACTIVE:
+            message: str = (
+                space.status.message if space.status else None
+            ) or "no status message"
+            raise ValueError(
+                f"App Space '{name}' is not active (state="
+                f"{state.value if state else None}): {message}"
+            )
+        logger.debug(
+            "Resolved App Space",
+            space=name,
+            space_id=space.id,
+            scopes=space.effective_user_api_scopes or space.user_api_scopes,
+            resource_count=len(space.resources or []),
+        )
+        self._space = space
+        return space
+
+
 class BackgroundModel(BaseModel):
     """Opt-in background agent configuration.
 
@@ -10595,15 +10670,24 @@ class AppModel(BaseModel):
         default=None,
         description="Databricks budget policy ID for cost attribution.",
     )
-    space: Optional[str] = Field(
+    app_space: Optional[AppSpaceModel] = Field(
         default=None,
         description=(
-            "Name of an existing Databricks App Space to assign this app to. "
-            "Spaces govern shared resources, user_api_scopes, and the runtime "
-            "service principal across multiple apps. App Spaces is currently in "
-            "Private Preview; the space must already exist in the target workspace "
-            "(create via Terraform `databricks_app_space` or "
-            "`WorkspaceClient.apps.create_space()`). dao-ai does not create spaces."
+            "EXPERIMENTAL. Existing Databricks App Space (Beta) to create the "
+            "Databricks App in — a bare name or ``{name: ...}``. As of the "
+            "Beta, in-space apps build with pip on Python 3.11 only, so a "
+            "dao-ai agent (Python >= 3.12) deploys but cannot start yet. "
+            "The space admin governs what "
+            "apps in it may do: the app inherits the space's user-authorization "
+            "scopes (it cannot declare its own) and cannot declare app "
+            "resources, so data access goes through on-behalf-of-user "
+            "resources within the space's scopes. dao-ai validates the config "
+            "against the live space before deploying and fails with a checklist "
+            "of anything the space does not grant. Apps in a space run as "
+            "scale-to-zero serverless micro apps, and an app's space is fixed "
+            "at creation (an existing app cannot be moved into a space). "
+            "dao-ai never creates spaces. Ignored for Model Serving. Formerly "
+            "``space`` (deprecated alias)."
         ),
     )
     workload_size: Optional[WorkloadSize] = Field(
@@ -10800,6 +10884,33 @@ class AppModel(BaseModel):
         ``None`` when ``workload_size`` is unset (explicit null).
         """
         return "Large" if self.workload_size == "XLarge" else self.workload_size
+
+    @model_validator(mode="before")
+    @classmethod
+    def _alias_space_to_app_space(cls, data: Any) -> Any:
+        """Accept ``space`` as a deprecated alias for ``app_space``.
+
+        Renamed so an App Space is never confused with a Genie space.
+        """
+        if isinstance(data, dict) and "space" in data:
+            import warnings
+
+            warnings.warn(
+                "AppModel field 'space' is deprecated. Use 'app_space' instead "
+                "(renamed to distinguish App Spaces from Genie spaces).",
+                DeprecationWarning,
+                stacklevel=4,
+            )
+            space = data.pop("space")
+            if data.get("app_space") is None:
+                data["app_space"] = space
+        return data
+
+    @field_validator("app_space", mode="before")
+    @classmethod
+    def _coerce_app_space_name(cls, value: Any) -> Any:
+        """Accept a bare space name (``app_space: my-space``)."""
+        return {"name": value} if isinstance(value, str) else value
 
     @model_validator(mode="after")
     def set_databricks_env_vars(self) -> Self:

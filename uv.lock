@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = ">=3.12"
 resolution-markers = [
     "python_full_version >= '3.15' and sys_platform == 'win32'",
@@ -1010,7 +1010,7 @@ requires-dist = [
     { name = "databricks-connect", marker = "extra == 'databricks'", specifier = ">=16.0.0" },
     { name = "databricks-langchain", extras = ["memory"], specifier = ">=0.20.0" },
     { name = "databricks-mcp", specifier = ">=0.9.0" },
-    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.126.0" },
+    { name = "databricks-sdk", extras = ["openai"], specifier = ">=0.146.0" },
     { name = "ddgs", marker = "extra == 'search'", specifier = ">=9.10.0" },
     { name = "deepagents", marker = "extra == 'deepagents'", specifier = ">=0.5.7" },
     { name = "fastapi", marker = "extra == 'mcp'", specifier = ">=0.115.0" },
@@ -1281,7 +1281,7 @@ wheels = [
 
 [[package]]
 name = "databricks-sdk"
-version = "0.137.0"
+version = "0.146.0"
 source = { registry = "https://pypi.org/simple" }
 dependencies = [
     { name = "google-auth" },
@@ -1289,9 +1289,9 @@ dependencies = [
     { name = "requests" },
     { name = "urllib3" },
 ]
-sdist = { url = "https://files.pythonhosted.org/packages/31/b6/025f1379547e10182657145ad13ee6b85b418b300d7bdc456583085d1471/databricks_sdk-0.137.0.tar.gz", hash = "sha256:33c995a36ccfd0e59ae16abe08eb129bf53218647e1549e8b9a6f4abbd12bf68", size = 1096729, upload-time = "2026-09-09T04:34:28.647Z" }
+sdist = { url = "https://files.pythonhosted.org/packages/43/5f/09499482f9f67400148fc2bb3f32b593d9b58fee0d8bcb02f0fe90a49214/databricks_sdk-0.146.0.tar.gz", hash = "sha256:7096fe03e801c24179efbb314870286225fbb5c73151b11aabf7bab53e0e8dd6", size = 1133527, upload-time = "2026-10-02T04:36:55.209Z" }
 wheels = [
-    { url = "https://files.pythonhosted.org/packages/63/08/235bd7946f9ff52df3690bb42e6658135cd798fb92c3de3b5010779b2978/databricks_sdk-0.137.0-py3-none-any.whl", hash = "sha256:03e89202f9f4bfd6004f76284c9e54fb14533566d8041f6ee7484c42a1a412e8", size = 1041303, upload-time = "2026-09-09T04:34:26.903Z" },
+    { url = "https://files.pythonhosted.org/packages/e4/0c/0d95520b7eae2fd37b9bf9ee5ba318f9133af9f8881781a3d39c8e341f58/databricks_sdk-0.146.0-py3-none-any.whl", hash = "sha256:e744fff01571f0202ca66816638aaa3d9a2ecc08b7af3a5c8c6300e931684b42", size = 1078198, upload-time = "2026-10-02T04:36:53.206Z" },
 ]
 
 [package.optional-dependencies]

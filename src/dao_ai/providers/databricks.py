@@ -2287,6 +2287,7 @@ class DatabricksProvider(ServiceProvider):
             AppDeploymentMode,
             AppDeploymentState,
             ApplicationState,
+            Space,
         )
 
         # Resolve the deployed App name: lowercased/hyphenated, and ``mcp-``
@@ -2361,6 +2362,54 @@ class DatabricksProvider(ServiceProvider):
                 "Production monitoring scorers registered for app",
                 scorer_count=len(registered_scorers),
             )
+
+        # Generate deployment resources as raw dicts for the REST API.
+        # This includes all resource types, even those not yet supported
+        # by the SDK enum (e.g. VECTOR_SEARCH_INDEX).
+        from dao_ai.apps.resources import (
+            generate_deployment_resources,
+            generate_user_api_scopes,
+        )
+
+        deployment_resources = generate_deployment_resources(
+            config, experiment_id=experiment.experiment_id
+        )
+        if deployment_resources:
+            logger.info(
+                "Discovered app resources from config",
+                resource_count=len(deployment_resources),
+                resources=[r.get("name") for r in deployment_resources],
+            )
+
+        # Generate user API scopes for on-behalf-of-user resources
+        user_api_scopes = generate_user_api_scopes(config)
+        if user_api_scopes:
+            logger.info(
+                "Discovered user API scopes for OBO resources",
+                scopes=user_api_scopes,
+            )
+
+        # App Space: the app inherits the space's scopes and may declare neither
+        # scopes nor resources, so validate the config against the live space
+        # (one checklist error) and refuse an existing app outside the space —
+        # an app's space is fixed at creation and cannot be changed.
+        from dao_ai.apps.resources import (
+            assert_app_space_unchanged,
+            is_shared_space_principal,
+            validate_app_space,
+        )
+
+        space: Space | None = None
+        space_name: str | None = None
+        if config.app.app_space is not None:
+            space = validate_app_space(
+                config, deployment_resources, user_api_scopes, w=self.w
+            )
+            space_name = config.app.app_space.resolved_name
+            # Validated as granted by the space; the Apps API rejects both on
+            # an in-space app, so send neither (create body, update, re-PATCH).
+            deployment_resources, user_api_scopes = [], []
+            assert_app_space_unchanged(self.w, app_name, space_name)
 
         # Fail before touching the workspace: the upload below deletes
         # ``source_path`` recursively, so a config with an unresolvable skill
@@ -2609,8 +2658,11 @@ class DatabricksProvider(ServiceProvider):
         app_yaml_content: str = generate_app_yaml(
             config,
             command=app_command,
-            include_resources=True,
+            include_resources=space_name is None,
             include_chat_ui=include_chat_ui,
+            # In a space there is no ``experiment`` app resource to bind
+            # ``valueFrom: experiment`` to, so pin the id literally.
+            experiment_id=experiment.experiment_id if space_name else None,
         )
 
         app_yaml_path: str = f"{source_path}/app.yaml"
@@ -2621,32 +2673,6 @@ class DatabricksProvider(ServiceProvider):
             overwrite=True,
         )
         logger.info("app.yaml with resources uploaded", path=app_yaml_path)
-
-        # Generate deployment resources as raw dicts for the REST API.
-        # This includes all resource types, even those not yet supported
-        # by the SDK enum (e.g. VECTOR_SEARCH_INDEX).
-        from dao_ai.apps.resources import (
-            generate_deployment_resources,
-            generate_user_api_scopes,
-        )
-
-        deployment_resources = generate_deployment_resources(
-            config, experiment_id=experiment.experiment_id
-        )
-        if deployment_resources:
-            logger.info(
-                "Discovered app resources from config",
-                resource_count=len(deployment_resources),
-                resources=[r.get("name") for r in deployment_resources],
-            )
-
-        # Generate user API scopes for on-behalf-of-user resources
-        user_api_scopes = generate_user_api_scopes(config)
-        if user_api_scopes:
-            logger.info(
-                "Discovered user API scopes for OBO resources",
-                scopes=user_api_scopes,
-            )
 
         # Check if app exists
         app_exists: bool = False
@@ -2663,6 +2689,8 @@ class DatabricksProvider(ServiceProvider):
             "name": app_name,
             "description": config.app.description or f"DAO AI Agent: {app_name}",
         }
+        if space_name:
+            app_body["space"] = space_name
         if deployment_resources:
             app_body["resources"] = deployment_resources
         if user_api_scopes:
@@ -2968,6 +2996,20 @@ class DatabricksProvider(ServiceProvider):
                         "trace-persistence grants skipped.",
                         app_name=app_name,
                     )
+                elif space is not None and is_shared_space_principal(
+                    space, fresh_app.service_principal_client_id
+                ):
+                    # A grant to the space's shared SP would widen access for
+                    # every app in the space; that is the space admin's call.
+                    logger.warning(
+                        "App runs as the App Space's shared service principal; "
+                        "skipping dao-ai grants. Ask the space admin to grant it "
+                        "CAN_EDIT on the MLflow experiment (and the trace "
+                        "tables / UC secrets this config uses).",
+                        app_name=app_name,
+                        space=space_name,
+                        principal=sp_id,
+                    )
                 else:
                     experiment: Experiment = self.get_or_create_experiment(
                         config, as_mcp=as_mcp
@@ -3151,6 +3193,22 @@ class DatabricksProvider(ServiceProvider):
                 f"(url/service-principal unresolved); re-run once it is ACTIVE."
             )
         host: str = self.w.config.host.rstrip("/")
+
+        # M2M mints an OAuth secret for the app's SP. If that SP is the App
+        # Space's shared SP, the secret could act as every app in the space.
+        if not reg.on_behalf_of_user and config.app.app_space is not None:
+            from dao_ai.apps.resources import is_shared_space_principal
+
+            if is_shared_space_principal(
+                config.app.app_space.resolve(self.w), client_id
+            ):
+                raise ValueError(
+                    f"App '{app_name}' runs as App Space "
+                    f"'{config.app.app_space.resolved_name}''s shared service "
+                    "principal; an M2M connection would mint a secret usable as "
+                    "every app in the space. Set app.connection.on_behalf_of_user"
+                    ": true (U2M) instead."
+                )
 
         # 1. Authorize invocation of the app. Who needs CAN_USE depends on the
         # connection's auth mode:

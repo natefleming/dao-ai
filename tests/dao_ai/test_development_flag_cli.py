@@ -733,6 +733,7 @@ def _app_config(*, trace: bool) -> AppConfig:
     class _App:
         name = "my_app"
         trace_location = object() if trace else None
+        app_space = None
 
     return AppConfig.model_construct(app=_App())
 
