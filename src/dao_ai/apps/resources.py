@@ -35,6 +35,8 @@ Usage:
 from collections.abc import Iterable
 from typing import Any
 
+from databricks.sdk import WorkspaceClient
+from databricks.sdk.errors.platform import NotFound
 from databricks.sdk.service.apps import (
     AppResource,
     AppResourceExperiment,
@@ -50,6 +52,7 @@ from databricks.sdk.service.apps import (
     AppResourceUcSecurable,
     AppResourceUcSecurableUcSecurablePermission,
     AppResourceUcSecurableUcSecurableType,
+    Space,
 )
 from loguru import logger
 
@@ -66,6 +69,7 @@ from dao_ai.config import (
     IsDatabricksResource,
     McpFunctionModel,
     SecretVariableModel,
+    StorageType,
     TableModel,
     TraceLocationModel,
     VectorStoreModel,
@@ -1063,6 +1067,255 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
     return result
 
 
+# Interchangeable spellings of the same OBO capability. An App Space lists its
+# allowed scopes in whatever spelling the admin chose (the default "Data + AI"
+# preset uses the short names), so a dao-ai scope is satisfied by any member of
+# its equivalence group.
+_SCOPE_EQUIVALENCE_GROUPS: tuple[frozenset[str], ...] = (
+    frozenset({"genie", "dashboards.genie"}),
+    frozenset({"files", "files.files"}),
+    frozenset({"model-serving", "serving.serving-endpoints"}),
+    frozenset(
+        {
+            "vector-search",
+            "vectorsearch.vector-search-indexes",
+            "vectorsearch.vector-search-endpoints",
+        }
+    ),
+)
+
+# MCP companion scopes are emitted alongside their native sibling in case the
+# agent reaches the resource over MCP. They are only *required* when the config
+# actually has an MCP tool.
+_MCP_COMPANION_SCOPES: frozenset[str] = frozenset(
+    {"mcp.genie", "mcp.vectorsearch", "mcp.functions", "mcp.external"}
+)
+
+# (resource kind, identity field) for matching a needed app resource against
+# the resources an App Space shares with its apps.
+_RESOURCE_IDENTITY_FIELDS: tuple[tuple[str, tuple[str, ...]], ...] = (
+    ("sql_warehouse", ("id",)),
+    ("serving_endpoint", ("name",)),
+    ("genie_space", ("space_id",)),
+    ("uc_securable", ("securable_full_name",)),
+    ("secret", ("scope", "key")),
+    ("postgres", ("branch", "database")),
+    ("database", ("instance_name", "database_name")),
+    ("job", ("id",)),
+    ("app", ("name",)),
+    ("experiment", ("experiment_id",)),
+)
+
+
+def _resource_identity(resource: dict[str, Any]) -> tuple[str, str] | None:
+    """Return ``(kind, identity)`` for an Apps resource dict, or None."""
+    for kind, fields in _RESOURCE_IDENTITY_FIELDS:
+        spec = resource.get(kind)
+        if isinstance(spec, dict):
+            identity = "/".join(str(spec.get(f) or "") for f in fields)
+            return kind, identity.lower()
+    return None
+
+
+def _scope_satisfied(scope: str, allowed: set[str]) -> bool:
+    if scope in allowed:
+        return True
+    return any(
+        scope in group and group & allowed for group in _SCOPE_EQUIVALENCE_GROUPS
+    )
+
+
+def validate_app_space(
+    config: AppConfig,
+    resources: list[dict[str, Any]],
+    user_api_scopes: list[str],
+    w: WorkspaceClient | None = None,
+) -> Space:
+    """Fail fast unless the config can run inside ``config.app.app_space``.
+
+    An app in an App Space inherits its user-authorization scopes from the
+    space and cannot declare its own scopes or app resources (the Apps API
+    rejects both), so everything dao-ai would normally declare on the app has
+    to be granted by the space instead. Checks, collected into ONE error so the
+    space admin gets a complete checklist:
+
+    - the space exists and is ACTIVE;
+    - every OBO scope the config needs is allowed by the space;
+    - every service-principal resource the config needs is shared by the space
+      (the MLflow experiment is exempt — dao-ai grants the app's own identity
+      CAN_EDIT on it directly);
+    - ``app.service_principal`` is unset (it would replace the app's identity);
+    - ``workload_size`` is not Large/XLarge (in-space apps are serverless micro
+      apps with a fixed size).
+
+    Args:
+        config: The config being deployed; ``config.app.app_space`` must be set.
+        resources: The app resources dao-ai would declare
+            (``generate_deployment_resources``).
+        user_api_scopes: The OBO scopes dao-ai would declare
+            (``generate_user_api_scopes``).
+        w: Workspace client; defaults to ambient auth.
+
+    Returns:
+        The live :class:`Space`.
+
+    Raises:
+        ValueError: listing every incompatibility.
+    """
+    app_space = config.app.app_space
+    space: Space = app_space.resolve(w)
+    space_name: str = app_space.resolved_name
+
+    problems: list[str] = []
+
+    if config.app.service_principal is not None:
+        problems.append(
+            "app.service_principal is set. It is injected as "
+            "DATABRICKS_CLIENT_ID/SECRET and would replace the identity the "
+            "app runs as in the space. Remove it for the Apps target."
+        )
+    if config.app.apps_compute_size() is not None:
+        problems.append(
+            f"workload_size={config.app.workload_size} is not supported: "
+            "apps in an App Space run as serverless micro apps with a fixed "
+            "size. Remove workload_size (or use Small/Medium)."
+        )
+
+    allowed_scopes: set[str] = set(
+        space.effective_user_api_scopes or space.user_api_scopes or []
+    )
+    has_mcp_tools: bool = any(
+        isinstance(tool.function, McpFunctionModel) for tool in config.tools.values()
+    )
+    required_scopes: list[str] = [
+        s for s in user_api_scopes if has_mcp_tools or s not in _MCP_COMPANION_SCOPES
+    ]
+    missing_scopes: list[str] = [
+        s for s in required_scopes if not _scope_satisfied(s, allowed_scopes)
+    ]
+    if missing_scopes:
+        problems.append(
+            f"OBO scopes not allowed by the space: {missing_scopes}. Ask "
+            f"the space admin to add them to App Space '{space_name}', or "
+            "remove on_behalf_of_user from the resources that need them. "
+            f"The space allows: {sorted(allowed_scopes)}."
+        )
+
+    shared: set[tuple[str, str]] = {
+        identity
+        for r in space.resources or []
+        if (identity := _resource_identity(r.as_dict())) is not None
+    }
+    missing: list[tuple[str, str]] = [
+        (identity[0], f"{identity[0]} {identity[1]} (resource '{r.get('name')}')")
+        for r in resources
+        if (identity := _resource_identity(r)) is not None
+        and identity[0] != "experiment"
+        and identity not in shared
+    ]
+    missing_secrets: list[str] = [d for kind, d in missing if kind == "secret"]
+    missing_resources: list[str] = [d for kind, d in missing if kind != "secret"]
+    if missing_resources:
+        problems.append(
+            "Apps in an App Space cannot declare app resources, and the "
+            f"space does not share: {missing_resources}. Either ask the "
+            f"space admin to share them on App Space '{space_name}', or "
+            "set on_behalf_of_user: true on those resources so they are "
+            "accessed as the signed-in user (within the space's scopes)."
+        )
+    if missing_secrets:
+        problems.append(
+            "Apps in an App Space cannot declare secret resources, and the "
+            f"space does not share: {missing_secrets}. Use a Unity Catalog "
+            "secret instead (resolved at runtime with the app's own identity, "
+            "which needs READ SECRET on it — dao-ai grants that on the "
+            "--direct deploy path), or ask the space admin to share them."
+        )
+
+    if problems:
+        checklist: str = "\n".join(f"  - {p}" for p in problems)
+        raise ValueError(
+            f"Config cannot be deployed into App Space '{space_name}':\n{checklist}"
+        )
+
+    _log_app_space_advisories(config, space_name)
+    logger.info(
+        "Config is compatible with App Space",
+        space=space_name,
+        required_scopes=required_scopes,
+    )
+    return space
+
+
+def _log_app_space_advisories(config: AppConfig, space_name: str) -> None:
+    """Warn about runtime traits of serverless micro apps that affect agents."""
+    logger.warning(
+        "EXPERIMENTAL: App Spaces support is in preparation. As of the Beta, "
+        "apps in a space build with pip on Python 3.11 only (pyproject.toml / "
+        "uv.lock are ignored) and have no public PyPI access, so a dao-ai agent "
+        "(Python >= 3.12) will deploy but fail to start until the platform "
+        "supports uv / Python 3.12 for apps in spaces.",
+        space=space_name,
+    )
+    logger.warning(
+        "Apps in an App Space are serverless micro apps: they scale to zero "
+        "after ~30 minutes idle (the next request cold-starts the agent), run "
+        "a single instance, and have no public internet egress (only the "
+        "workspace and the managed package proxy).",
+        space=space_name,
+    )
+    memory = config.memory
+    checkpointer = memory.checkpointer if memory else None
+    if checkpointer is not None and checkpointer.storage_type == StorageType.MEMORY:
+        logger.warning(
+            "memory.checkpointer is in-memory: conversation state is lost "
+            "whenever the app scales to zero. Use a Lakebase database or the "
+            "Session Store for durable memory.",
+            space=space_name,
+        )
+
+
+def assert_app_space_unchanged(
+    w: WorkspaceClient, app_name: str, space_name: str
+) -> None:
+    """Fail fast when ``app_name`` already exists outside ``space_name``.
+
+    An app's space is fixed at creation: the update API rejects ``space`` and
+    the legacy PATCH silently ignores it, so redeploying would leave the app
+    where it is. A missing app is fine (it will be created in the space).
+    """
+    try:
+        existing_space: str | None = w.apps.get(name=app_name).space
+    except NotFound:
+        return
+    if existing_space != space_name:
+        where: str = (
+            f"in App Space '{existing_space}'"
+            if existing_space
+            else "outside any App Space"
+        )
+        raise ValueError(
+            f"App '{app_name}' already exists {where}, but the config targets "
+            f"App Space '{space_name}'. An app's space is fixed at creation; "
+            "delete the app (`dao-ai agent down`) and redeploy to create it in "
+            "the space."
+        )
+
+
+def is_shared_space_principal(space: Space, principal: str | None) -> bool:
+    """True when ``principal`` is the App Space's own service principal.
+
+    A space with a service principal shares it across every app in the space,
+    so a grant to it widens access for all of them. Beta spaces give each app
+    its own principal, in which case this is False.
+    """
+    return bool(
+        principal
+        and space.service_principal_client_id
+        and principal == space.service_principal_client_id
+    )
+
+
 def _sanitize_resource_name(name: str) -> str:
     """
     Sanitize a resource name to meet Databricks Apps requirements.
@@ -1931,6 +2184,7 @@ def generate_app_yaml(
     command: str | list[str] | None = None,
     include_resources: bool = True,
     include_chat_ui: bool | None = None,
+    experiment_id: str | None = None,
 ) -> str:
     """
     Generate a complete app.yaml for Databricks Apps deployment.
@@ -1947,6 +2201,9 @@ def generate_app_yaml(
         include_chat_ui: Whether to inject the chat-UI proxy env vars. None
             (default) preserves the legacy behavior of deriving this from
             config.app.enable_chat_proxy; True force-includes; False skips.
+        experiment_id: When set, ``MLFLOW_EXPERIMENT_ID`` is this literal id
+            instead of ``valueFrom: experiment``. Needed when the app cannot
+            declare an ``experiment`` resource (apps in an App Space).
 
     Returns:
         A complete app.yaml as a string
@@ -1977,7 +2234,11 @@ def generate_app_yaml(
     env_vars: list[dict[str, str]] = [
         {"name": "MLFLOW_TRACKING_URI", "value": "databricks"},
         {"name": "MLFLOW_REGISTRY_URI", "value": "databricks-uc"},
-        {"name": "MLFLOW_EXPERIMENT_ID", "valueFrom": "experiment"},
+        (
+            {"name": "MLFLOW_EXPERIMENT_ID", "value": experiment_id}
+            if experiment_id
+            else {"name": "MLFLOW_EXPERIMENT_ID", "valueFrom": "experiment"}
+        ),
         {"name": "DAO_AI_CONFIG_PATH", "value": "dao_ai.yaml"},
     ]
 

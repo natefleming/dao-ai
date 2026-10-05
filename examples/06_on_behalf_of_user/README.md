@@ -40,6 +40,7 @@ flowchart TB
 | File | Description |
 |------|-------------|
 | [`obo_config.yaml`](./obo_config.yaml) | On-behalf-of user token exchange configuration |
+| [`obo_app_space.yaml`](./obo_app_space.yaml) | Deploy into a governed Databricks App Space (Beta): OBO-only resources within the space's scopes |
 
 ## How OBO Works
 

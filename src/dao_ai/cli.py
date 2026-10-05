@@ -2987,6 +2987,23 @@ def _grant_trace_writes_to_app_sp(
             w = WorkspaceClient()
             app = w.apps.get(name=app_name)
             sp_id = app.service_principal_client_id or app.service_principal_id
+            if config.app.app_space is not None:
+                from dao_ai.apps.resources import is_shared_space_principal
+
+                if is_shared_space_principal(
+                    config.app.app_space.resolve(w), app.service_principal_client_id
+                ):
+                    # A grant to the space's shared SP widens access for every
+                    # app in the space — that is the space admin's call.
+                    print(
+                        f"App {app_name!r} runs as App Space "
+                        f"{config.app.app_space.resolved_name!r}'s shared service "
+                        "principal — skipping SP grants. Ask the space admin to "
+                        f"grant {sp_id} CAN_EDIT on experiment {experiment_id} "
+                        "(and the UC trace tables, if configured).",
+                        file=sys.stderr,
+                    )
+                    return
         except Exception as e:  # noqa: BLE001
             print(
                 f"Could not resolve App SP via apps.get({app_name!r}): "
@@ -3014,6 +3031,11 @@ def _grant_trace_writes_to_app_sp(
     _grant_experiment_permissions_to_principal(
         principal=sp_id, experiment_id=experiment_id
     )
+    if not config.app.trace_location:
+        # In-space apps cannot declare the ``experiment`` app resource that
+        # normally grants this, so the experiment grant is all they need.
+        print(f"Granted experiment {experiment_id} CAN_EDIT to App SP {sp_id}")
+        return
 
     table_prefix: str = _resolve_trace_table_prefix(
         config,
@@ -5297,6 +5319,16 @@ def _link_and_grant_trace(
     (the chat App and the MCP server have distinct auto-created SPs).
     """
     if not (config.app and config.app.trace_location):
+        # An in-space app cannot declare the ``experiment`` app resource that
+        # grants its SP CAN_EDIT, so grant it directly.
+        if config.app and config.app.app_space is not None and not dry_run:
+            experiment_id = _resolve_experiment_id_for_link(
+                config, None, as_mcp=as_mcp
+            )
+            if experiment_id is not None:
+                _grant_trace_writes_to_app_sp(
+                    config, experiment_id, sp_override=None, as_mcp=as_mcp
+                )
         return
 
     if dry_run:

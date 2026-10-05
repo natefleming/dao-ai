@@ -56,7 +56,7 @@ dependencies = [
     "databricks-agentbricks[langgraph]>=0.3.0",
     "databricks-langchain[memory]>=0.20.0",
     "databricks-mcp>=0.9.0",
-    "databricks-sdk[openai]>=0.126.0",
+    "databricks-sdk[openai]>=0.146.0",
     # Core (not an optional extra) because dao-ai source imports
     # databricks.ai_search.{client,index,reranker} unconditionally (config,
     # tools, providers, provisioning). This is the successor to the

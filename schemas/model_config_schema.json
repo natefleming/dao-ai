@@ -1675,18 +1675,17 @@
           "description": "Databricks budget policy ID for cost attribution.",
           "title": "Budget Policy Id"
         },
-        "space": {
+        "app_space": {
           "anyOf": [
             {
-              "type": "string"
+              "$ref": "#/$defs/AppSpaceModel"
             },
             {
               "type": "null"
             }
           ],
           "default": null,
-          "description": "Name of an existing Databricks App Space to assign this app to. Spaces govern shared resources, user_api_scopes, and the runtime service principal across multiple apps. App Spaces is currently in Private Preview; the space must already exist in the target workspace (create via Terraform `databricks_app_space` or `WorkspaceClient.apps.create_space()`). dao-ai does not create spaces.",
-          "title": "Space"
+          "description": "EXPERIMENTAL. Existing Databricks App Space (Beta) to create the Databricks App in \u2014 a bare name or ``{name: ...}``. As of the Beta, in-space apps build with pip on Python 3.11 only, so a dao-ai agent (Python >= 3.12) deploys but cannot start yet. The space admin governs what apps in it may do: the app inherits the space's user-authorization scopes (it cannot declare its own) and cannot declare app resources, so data access goes through on-behalf-of-user resources within the space's scopes. dao-ai validates the config against the live space before deploying and fails with a checklist of anything the space does not grant. Apps in a space run as scale-to-zero serverless micro apps, and an app's space is fixed at creation (an existing app cannot be moved into a space). dao-ai never creates spaces. Ignored for Model Serving. Formerly ``space`` (deprecated alias)."
         },
         "workload_size": {
           "anyOf": [
@@ -2012,6 +2011,50 @@
         "entitlements"
       ],
       "title": "AppPermissionModel",
+      "type": "object"
+    },
+    "AppSpaceModel": {
+      "additionalProperties": false,
+      "description": "Reference an existing Databricks App Space (Beta).\n\nAn App Space is an admin-owned governance boundary: the space admin\ndefines the user-authorization scopes (and, where the workspace supports\nit, shared resources and a usage policy) once, and every app created in\nthe space inherits them. dao-ai never creates or modifies spaces \u2014 it\ndeploys *into* one and fails fast when the config needs something the\nspace does not grant.\n\nReference-only, mirroring :class:`ExperimentModel`: the live space is\nfetched lazily by :meth:`resolve` at deploy time, never at config-load\ntime. Accepts a bare string in YAML (``app_space: my-space``).",
+      "properties": {
+        "name": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CompositeVariableModel"
+            },
+            {
+              "$ref": "#/$defs/EnvironmentVariableModel"
+            },
+            {
+              "$ref": "#/$defs/SecretVariableModel"
+            },
+            {
+              "$ref": "#/$defs/UnityCatalogSecretModel"
+            },
+            {
+              "$ref": "#/$defs/PrimitiveVariableModel"
+            },
+            {
+              "type": "string"
+            },
+            {
+              "type": "integer"
+            },
+            {
+              "type": "number"
+            },
+            {
+              "type": "boolean"
+            }
+          ],
+          "description": "Name of an existing App Space (lowercase alphanumerics and hyphens). Create it in the Databricks Apps UI (App Spaces \u2192 New Space), the REST API, or Terraform ``databricks_app_space``.",
+          "title": "Name"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "AppSpaceModel",
       "type": "object"
     },
     "AppToolModel": {
