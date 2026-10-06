@@ -165,7 +165,9 @@ class TestFunctionModelParsing:
             "function": {"type": "invalid_type", "name": "some.function"},
         }
 
-        with pytest.raises(ValidationError, match="Input should be"):
+        with pytest.raises(
+            ValidationError, match="does not match any of the expected tags"
+        ):
             ToolModel(**yaml_data)
 
     @pytest.mark.unit
@@ -317,3 +319,39 @@ class TestFunctionModelFromYAML:
         assert recreated_tool.function.type == FunctionType.FACTORY
         assert recreated_tool.function.name == "tools.create_tool"
         assert recreated_tool.function.args == {"param": "value"}
+
+
+class TestToolDiscrimination:
+    """``AnyTool`` dispatches on ``type`` instead of trying every member."""
+
+    @pytest.mark.unit
+    def test_invalid_typed_tool_reports_only_its_own_errors(self):
+        with pytest.raises(ValidationError) as exc_info:
+            ToolModel(name="t", function={"type": "genie", "genie_room": 123})
+
+        errors = exc_info.value.errors()
+        assert len(errors) == 1
+        assert errors[0]["loc"][:2] == ("function", "genie")
+
+    @pytest.mark.unit
+    def test_untyped_tool_resolves_by_shape(self):
+        tool = ToolModel(name="t", function={"name": "tools.create_tool"})
+
+        assert isinstance(tool.function, PythonFunctionModel)
+
+    @pytest.mark.unit
+    def test_enum_type_and_reference_string(self):
+        typed = ToolModel(
+            name="t", function={"type": FunctionType.FACTORY, "name": "x"}
+        )
+        reference = ToolModel(name="t", function="some_tool_reference")
+
+        assert isinstance(typed.function, FactoryFunctionModel)
+        assert reference.function == "some_tool_reference"
+
+    @pytest.mark.unit
+    def test_json_schema_keeps_any_of(self):
+        schema = ToolModel.model_json_schema()["properties"]["function"]
+
+        assert "oneOf" not in schema
+        assert {"type": "string"} in schema["anyOf"]
