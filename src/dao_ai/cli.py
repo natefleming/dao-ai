@@ -6414,9 +6414,11 @@ def _deploy_run_destroy_app_bundle(
         # disk (erroring above if nothing is staged), and on config drift it warns
         # + deploys in place rather than silently rebuilding. `up` builds when
         # unstaged, rebuilds on drift, and force-rebuilds under --overwrite (parity
-        # with `build --overwrite`); an unchanged default dir is left as-is (skip).
+        # with `build --overwrite`) in a default dir AND a user `-s` dir — the
+        # writer only ever wipes a default dir, so a user dir just gets its
+        # generated files overwritten; an unchanged default dir is left as-is.
         should_stage: bool = orchestrating and not is_staged
-        if orchestrating and is_staged and overwrite and is_default_dir:
+        if orchestrating and is_staged and overwrite:
             logger.info(
                 f"--overwrite: force-rebuilding the {kind} bundle at {bundle_dir} "
                 f"before sync."
