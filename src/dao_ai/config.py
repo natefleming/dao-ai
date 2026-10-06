@@ -13224,13 +13224,13 @@ class AppConfig(BaseModel):
         self, predicate: Callable[[ToolModel], bool] | None = None
     ) -> Sequence[ToolModel]:
         """
-        Find agents in the configuration that match a given predicate.
+        Find tools in the configuration that match a given predicate.
 
         Args:
-            predicate: A callable that takes an AgentModel and returns True if it matches.
+            predicate: A callable that takes a ToolModel and returns True if it matches.
 
         Returns:
-            A list of AgentModel instances that match the predicate.
+            A list of ToolModel instances that match the predicate.
         """
         if predicate is None:
 
@@ -13245,13 +13245,13 @@ class AppConfig(BaseModel):
         self, predicate: Callable[[GuardrailModel], bool] | None = None
     ) -> Sequence[GuardrailModel]:
         """
-        Find agents in the configuration that match a given predicate.
+        Find guardrails in the configuration that match a given predicate.
 
         Args:
-            predicate: A callable that takes an AgentModel and returns True if it matches.
+            predicate: A callable that takes a GuardrailModel and returns True if it matches.
 
         Returns:
-            A list of AgentModel instances that match the predicate.
+            A list of GuardrailModel instances that match the predicate.
         """
         if predicate is None:
 
