@@ -4641,6 +4641,9 @@
         "ai_decide": {
           "anyOf": [
             {
+              "type": "boolean"
+            },
+            {
               "$ref": "#/$defs/AiDecideJudgeModel"
             },
             {
@@ -4648,10 +4651,11 @@
             }
           ],
           "default": null,
-          "description": "Judge the built-in safety, completeness, and relevance_to_query checks (and any 'decisions') with Databricks ai_decide in one call per row, instead of LLM judges. tool_call_efficiency stays on the LLM judge."
+          "description": "Databricks ai_decide judges the built-in safety, completeness, and relevance_to_query checks (and any 'decisions') in one call per row. The default: omit it or use true for default settings, give settings to configure it, or false to use the MLflow LLM judges instead. tool_call_efficiency always uses the LLM judge.",
+          "title": "Ai Decide"
         },
         "decisions": {
-          "description": "Custom ai_decide questions (noul, choice, score) scored for every row. Requires 'ai_decide'.",
+          "description": "Custom ai_decide questions (noul, choice, score) scored for every row. Not allowed with 'ai_decide: false'.",
           "items": {
             "$ref": "#/$defs/DecisionQuestionModel"
           },
@@ -6600,6 +6604,9 @@
         "ai_decide": {
           "anyOf": [
             {
+              "type": "boolean"
+            },
+            {
               "$ref": "#/$defs/AiDecideJudgeModel"
             },
             {
@@ -6607,7 +6614,8 @@
             }
           ],
           "default": null,
-          "description": "Use Databricks ai_decide as a jev-style yes/no judge for the prompt. Required for ai_decide mode."
+          "description": "Databricks ai_decide judge for the prompt. The default judge when neither 'model' nor 'scorer' is set: omit it or use true for default settings, give settings to configure it, or false to turn it off.",
+          "title": "Ai Decide"
         },
         "criteria": {
           "anyOf": [
@@ -6727,6 +6735,9 @@
         "ai_decide": {
           "anyOf": [
             {
+              "type": "boolean"
+            },
+            {
               "$ref": "#/$defs/AiDecideJudgeModel"
             },
             {
@@ -6734,7 +6745,8 @@
             }
           ],
           "default": null,
-          "description": "Judge these guidelines with Databricks ai_decide (one yes/no decision) instead of the Guidelines LLM judge. Evaluation only; skipped for production monitoring."
+          "description": "Judge these guidelines with Databricks ai_decide (one yes/no decision). Unset follows the context default: ai_decide in evaluation, the Guidelines LLM judge in production monitoring (ai_decide scorers can't be registered there). true / settings force ai_decide; false forces the LLM judge.",
+          "title": "Ai Decide"
         }
       },
       "required": [

@@ -30,6 +30,7 @@ from mlflow.genai.scorers import (
 )
 from mlflow.models.evaluation.base import EvaluationResult
 
+from dao_ai.config import resolve_ai_decide
 from dao_ai.judges.ai_decide import AiDecideScorer, noul_question
 
 FeedbackValue = Literal["up", "down"]
@@ -170,19 +171,25 @@ def prepare_eval_dataframe(
 def create_guidelines_scorers(
     guidelines_config: list[GuidelineModel],
     judge_model: str | None = None,
+    *,
+    ai_decide_default: bool = True,
 ) -> list[Scorer]:
     """
     Create Guidelines scorers from configuration.
 
-    Uses the default managed Databricks judge when no judge_model is specified.
-    Guideline sets with ``ai_decide`` are instead asked as one yes/no question
+    Guideline sets that use ``ai_decide`` are asked as one yes/no question
     each; sets sharing the same ``ai_decide`` settings are answered together
-    by a single ``AiDecideScorer`` (one ``ai_decide`` call per row).
+    by a single ``AiDecideScorer`` (one ``ai_decide`` call per row). The rest
+    use the ``Guidelines`` LLM judge (the default managed Databricks judge
+    when no judge_model is specified).
 
     Args:
         guidelines_config: List of guideline configurations with ``name`` and
             ``guidelines`` attributes.
         judge_model: Optional model endpoint override.
+        ai_decide_default: Whether a guideline set with ``ai_decide`` unset
+            uses ai_decide (evaluation) or the LLM judge (production
+            monitoring, where ai_decide scorers can't be registered).
 
     Returns:
         List of configured Guidelines and ai_decide scorers.
@@ -190,9 +197,12 @@ def create_guidelines_scorers(
     scorers: list[Scorer] = []
     ai_decide_groups: dict[str, tuple[AiDecideJudgeModel, dict[str, Any]]] = {}
     for guideline in guidelines_config:
-        if guideline.ai_decide is not None:
-            key: str = guideline.ai_decide.model_dump_json()
-            _, questions = ai_decide_groups.setdefault(key, (guideline.ai_decide, {}))
+        ai_decide: AiDecideJudgeModel | None = resolve_ai_decide(
+            guideline.ai_decide, default=ai_decide_default
+        )
+        if ai_decide is not None:
+            key: str = ai_decide.model_dump_json()
+            _, questions = ai_decide_groups.setdefault(key, (ai_decide, {}))
             questions[guideline.name] = _guideline_question(guideline)
             continue
         kwargs: dict[str, Any] = {
@@ -229,9 +239,9 @@ def build_scorers(evaluation_config: EvaluationModel) -> list[Scorer]:
     Assembles built-in MLflow judges (Safety, Completeness, RelevanceToQuery,
     ToolCallEfficiency) and any Guidelines scorers defined in the config.
 
-    When ``evaluation_config.ai_decide`` is set, Safety, Completeness, and
-    RelevanceToQuery -- plus any custom ``decisions`` -- are answered by one
-    ``AiDecideScorer`` (a single ``ai_decide`` call per row). The Feedback
+    By default (unless ``evaluation_config.ai_decide`` is ``False``), Safety,
+    Completeness, and RelevanceToQuery -- plus any custom ``decisions`` -- are
+    answered by one ``AiDecideScorer`` (a single ``ai_decide`` call per row). The Feedback
     names match the built-ins. ToolCallEfficiency needs the trace, which
     ai_decide cannot read, so it stays on the LLM judge.
 
@@ -243,7 +253,9 @@ def build_scorers(evaluation_config: EvaluationModel) -> list[Scorer]:
         List of scorer instances ready for ``mlflow.genai.evaluate()``.
     """
     scorers: list[Scorer]
-    ai_decide: AiDecideJudgeModel | None = evaluation_config.ai_decide
+    ai_decide: AiDecideJudgeModel | None = resolve_ai_decide(
+        evaluation_config.ai_decide, default=True
+    )
     if ai_decide is None:
         scorers = [
             Safety(),
@@ -554,7 +566,7 @@ def register_monitoring_scorers(
 
     if monitoring_config.guidelines:
         guideline_scorers: list[Scorer] = create_guidelines_scorers(
-            monitoring_config.guidelines
+            monitoring_config.guidelines, ai_decide_default=False
         )
         for gs in guideline_scorers:
             if isinstance(gs, AiDecideScorer):
@@ -574,7 +586,7 @@ def register_monitoring_scorers(
             result.append(scorer)
 
     for guardrail in guardrail_entries:
-        if guardrail.ai_decide is not None:
+        if guardrail.ai_decide_judge is not None:
             # MLflow can only register built-in or @scorer scorers.
             logger.warning(
                 "Skipping ai_decide guardrail for production monitoring "

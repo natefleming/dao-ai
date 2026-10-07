@@ -208,7 +208,7 @@ class TestCreateGuidelinesScorers:
         class MockGuideline:
             name = "test_guideline"
             guidelines = ["Be helpful", "Be accurate"]
-            ai_decide = None
+            ai_decide = False
 
         scorers = create_guidelines_scorers([MockGuideline()])
 
@@ -223,7 +223,7 @@ class TestCreateGuidelinesScorers:
         class MockGuideline:
             name = "quality"
             guidelines = ["Be concise"]
-            ai_decide = None
+            ai_decide = False
 
         scorers = create_guidelines_scorers(
             [MockGuideline()],
@@ -240,12 +240,12 @@ class TestCreateGuidelinesScorers:
         class G1:
             name = "g1"
             guidelines = ["Rule 1"]
-            ai_decide = None
+            ai_decide = False
 
         class G2:
             name = "g2"
             guidelines = ["Rule 2"]
-            ai_decide = None
+            ai_decide = False
 
         scorers = create_guidelines_scorers([G1(), G2()])
 
@@ -268,7 +268,7 @@ class TestBuildScorers:
 
         class MockEvalConfig:
             guidelines = []
-            ai_decide = None
+            ai_decide = False
 
         scorers = build_scorers(MockEvalConfig())
 
@@ -286,11 +286,11 @@ class TestBuildScorers:
         class MockGuideline:
             name = "my_guideline"
             guidelines = ["Be polite"]
-            ai_decide = None
+            ai_decide = False
 
         class MockEvalConfig:
             guidelines = [MockGuideline()]
-            ai_decide = None
+            ai_decide = False
 
         scorers = build_scorers(MockEvalConfig())
 
@@ -305,7 +305,7 @@ class TestBuildScorers:
 
         class MockEvalConfig:
             guidelines = []
-            ai_decide = None
+            ai_decide = False
 
         scorers = build_scorers(MockEvalConfig())
 
@@ -493,16 +493,22 @@ class TestEvaluationPipeline:
 
         scorers = build_scorers(config.evaluation)
 
-        safety_scorers = [s for s in scorers if isinstance(s, Safety)]
-        assert len(safety_scorers) == 1
+        # ai_decide is the default judge: one scorer answers the built-in
+        # checks, one answers the guideline set; tool_call_efficiency stays LLM.
+        from dao_ai.judges.ai_decide import AiDecideScorer
 
-        guideline_scorers = [s for s in scorers if isinstance(s, Guidelines)]
-        assert len(guideline_scorers) == 1
-        assert guideline_scorers[0].name == "my_relevance_guideline"
-        assert guideline_scorers[0].model is None
-
-        # Safety + Completeness + RelevanceToQuery + ToolCallEfficiency + 1 guideline
-        assert len(scorers) == 5
+        assert [type(s) for s in scorers] == [
+            AiDecideScorer,
+            ToolCallEfficiency,
+            AiDecideScorer,
+        ]
+        assert list(scorers[0]._questions) == [
+            "safety",
+            "completeness",
+            "relevance_to_query",
+        ]
+        assert scorers[2].name == "my_relevance_guideline"
+        assert not any(isinstance(s, (Safety, Guidelines)) for s in scorers)
 
     @pytest.mark.unit
     def test_evaluate_pipeline_with_mocked_mlflow(self) -> None:
@@ -514,7 +520,7 @@ class TestEvaluationPipeline:
         )
 
         scorers = build_scorers(config.evaluation)
-        assert len(scorers) == 5
+        assert len(scorers) == 3
 
         def mock_predict_fn(messages: list) -> dict:
             return {"response": "We have many products available."}
@@ -549,7 +555,7 @@ class TestEvaluationPipeline:
 
             mock_eval.assert_called_once()
             call_kwargs = mock_eval.call_args[1]
-            assert len(call_kwargs["scorers"]) == 5
+            assert len(call_kwargs["scorers"]) == 3
             assert call_kwargs["predict_fn"] is mock_predict_fn
 
     @pytest.mark.unit

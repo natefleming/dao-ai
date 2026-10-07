@@ -37,7 +37,7 @@ from mlflow.genai.judges import make_judge
 from mlflow.genai.scorers.base import Scorer
 from pydantic import PrivateAttr
 
-from dao_ai.config import AiDecideJudgeModel, PromptModel
+from dao_ai.config import AiDecideJudgeModel, PromptModel, resolve_ai_decide
 from dao_ai.judges.ai_decide import AiDecideScorer, noul_question
 from dao_ai.messages import last_ai_message, last_human_message
 from dao_ai.middleware._prompt_utils import resolve_prompt
@@ -217,23 +217,32 @@ def _interpret_feedback(
     return str(value).lower() in ("yes", "true", "pass", "safe"), comment
 
 
-def _as_ai_decide(
-    ai_decide: AiDecideJudgeModel | dict[str, Any] | None,
+AiDecideArg = bool | AiDecideJudgeModel | dict[str, Any] | None
+
+
+def _resolve_judge(
+    guardrail: str, model: str | None, ai_decide: AiDecideArg
 ) -> AiDecideJudgeModel | None:
-    """Accept ``ai_decide`` settings as a model or a raw YAML dict."""
-    if ai_decide is None or isinstance(ai_decide, AiDecideJudgeModel):
-        return ai_decide
-    return AiDecideJudgeModel.model_validate(ai_decide)
+    """Pick the judge: an LLM ``model``, or ai_decide (the default).
 
-
-def _require_one_judge(
-    guardrail: str, model: str | None, ai_decide: AiDecideJudgeModel | None
-) -> None:
-    if (model is None) == (ai_decide is None):
+    Returns the ai_decide settings, or ``None`` when *model* is the judge.
+    ``ai_decide`` may be omitted / ``True`` (defaults), a settings dict or
+    ``AiDecideJudgeModel``, or ``False`` (only valid with a *model*).
+    """
+    if model is not None:
+        if ai_decide is not None and ai_decide is not False:
+            raise ValueError(
+                f"The '{guardrail}' guardrail can't use both 'model' (LLM judge) "
+                "and 'ai_decide'; remove one."
+            )
+        return None
+    resolved: AiDecideJudgeModel | None = resolve_ai_decide(ai_decide, default=True)
+    if resolved is None:
         raise ValueError(
-            f"The '{guardrail}' guardrail needs exactly one of 'model' "
-            "(LLM judge) or 'ai_decide'."
+            f"The '{guardrail}' guardrail has 'ai_decide: false' but no 'model' "
+            "(LLM judge); set a model or remove 'ai_decide: false'."
         )
+    return resolved
 
 
 __all__ = [
@@ -285,11 +294,11 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
             Creates a ``JudgeScorer`` internally.  Requires *prompt*.
         prompt: Evaluation instructions using ``{{ inputs }}`` and
             ``{{ outputs }}`` template variables.  Accepts a plain string
-            or a ``PromptModel``.  Requires *model* or *ai_decide*.
-        ai_decide: ``ai_decide`` judge settings (model or dict).  Asks
-            *decision* -- or *prompt* as a yes/no question -- through
-            Databricks ``ai_decide``.  Mutually exclusive with *scorer* and
-            *model*.
+            or a ``PromptModel``.
+        ai_decide: Databricks ``ai_decide`` judge, used when neither
+            *scorer* nor *model* is given: omit it or pass ``True`` for
+            default settings, a dict / ``AiDecideJudgeModel`` to configure
+            it.  Asks *decision* -- or *prompt* as a yes/no question.
         decision: ``ai_decide`` question spec used with *ai_decide* instead
             of *prompt* (see ``dao_ai.judges.ai_decide.noul_question``).
         num_retries: Maximum number of retry attempts (default: 3).
@@ -314,7 +323,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         scorer: Scorer | None = None,
         model: str | None = None,
         prompt: str | PromptModel | None = None,
-        ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+        ai_decide: AiDecideArg = None,
         decision: dict[str, Any] | None = None,
         num_retries: int = 3,
         fail_on_error: bool = False,
@@ -330,15 +339,19 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         # thread_id -> (turn_id, retries used in that turn), least recently
         # used first; bounded by _MAX_TRACKED_THREADS.
         self._retry_counts: OrderedDict[str, tuple[str, int]] = OrderedDict()
-        ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
+        if scorer is not None and ai_decide is not None and ai_decide is not False:
+            raise ValueError("Cannot combine 'ai_decide' with 'scorer'.")
+        ai_decide_model: AiDecideJudgeModel | None = (
+            None if scorer is not None else _resolve_judge(name, model, ai_decide)
+        )
 
         if ai_decide_model is not None:
-            if scorer is not None or model is not None:
-                raise ValueError("Cannot combine 'ai_decide' with 'scorer' or 'model'.")
             if decision is None:
                 if prompt is None:
                     raise ValueError(
-                        "'ai_decide' requires a 'prompt' or a 'decision' question."
+                        "Either 'scorer' or both 'model' and 'prompt' (or 'prompt' "
+                        "alone for an ai_decide guardrail) must be provided to "
+                        "GuardrailMiddleware."
                     )
                 decision = noul_question(resolve_prompt(prompt, jinja=True))
             self._scorer = AiDecideScorer(
@@ -729,30 +742,27 @@ class SafetyGuardrailMiddleware(AgentMiddleware[AgentState, Context]):
     Args:
         safety_model: MLflow model string for the safety judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
-            Defaults to ``"openai:/gpt-4o-mini"`` if neither it nor
-            *ai_decide* is provided.
+            When omitted, Databricks ``ai_decide`` judges safety.
         fail_on_error: If True, block responses when the judge call
             itself errors.  If False (default), let responses through
             on evaluation errors.
-        ai_decide: Judge safety with Databricks ``ai_decide`` instead of
-            an LLM.  Mutually exclusive with *safety_model*.
+        ai_decide: ``ai_decide`` settings when no *safety_model* is given:
+            omit it or pass ``True`` for defaults, or a dict to configure it.
     """
 
     def __init__(
         self,
         safety_model: Optional[str] = None,
         fail_on_error: bool = False,
-        ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+        ai_decide: AiDecideArg = None,
     ):
         super().__init__()
         self.fail_on_error = fail_on_error
-        ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "safety", safety_model, ai_decide
+        )
         self._ai_decide_scorer: AiDecideScorer | None = None
         if ai_decide_model is not None:
-            if safety_model is not None:
-                raise ValueError(
-                    "Cannot combine 'safety_model' with 'ai_decide' in the safety guardrail."
-                )
             self.model_endpoint: str | None = None
             self._ai_decide_scorer = AiDecideScorer(
                 name="safety_guardrail",
@@ -761,7 +771,7 @@ class SafetyGuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                 threshold=ai_decide_model.threshold,
             )
             return
-        self.model_endpoint = safety_model or "openai:/gpt-4o-mini"
+        self.model_endpoint = safety_model
         self._safety_judge = make_judge(
             name="safety_guardrail",
             instructions=(
@@ -1102,8 +1112,9 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
         max_context_length: Max chars for extracted tool context (default: 8000)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict to configure it.
     """
 
     def __init__(
@@ -1112,10 +1123,11 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
         num_retries: int = 2,
         fail_on_error: bool = False,
         max_context_length: int = 8000,
-        ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+        ai_decide: AiDecideArg = None,
     ):
-        ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
-        _require_one_judge("veracity", model, ai_decide_model)
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "veracity", model, ai_decide
+        )
         super().__init__(
             name="veracity",
             model=model,
@@ -1173,8 +1185,9 @@ class RelevanceGuardrailMiddleware(GuardrailMiddleware):
         model: MLflow model string for the judge
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict to configure it.
     """
 
     def __init__(
@@ -1182,10 +1195,11 @@ class RelevanceGuardrailMiddleware(GuardrailMiddleware):
         model: str | None = None,
         num_retries: int = 2,
         fail_on_error: bool = False,
-        ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+        ai_decide: AiDecideArg = None,
     ):
-        ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
-        _require_one_judge("relevance", model, ai_decide_model)
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "relevance", model, ai_decide
+        )
         super().__init__(
             name="relevance",
             model=model,
@@ -1219,8 +1233,9 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
             or a ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict to configure it.
 
     Raises:
         ValueError: If ``tone`` is not a recognized profile and no
@@ -1236,10 +1251,11 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
         custom_guidelines: str | PromptModel | None = None,
         num_retries: int = 2,
         fail_on_error: bool = False,
-        ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+        ai_decide: AiDecideArg = None,
     ):
-        ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
-        _require_one_judge(f"tone_{tone}", model, ai_decide_model)
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            f"tone_{tone}", model, ai_decide
+        )
         if custom_guidelines:
             prompt: str | PromptModel = custom_guidelines
         elif tone in TONE_PROFILES:
@@ -1287,8 +1303,9 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
             check passes (default: True)
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict to configure it.
     """
 
     def __init__(
@@ -1299,10 +1316,11 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
         check_verbosity: bool = True,
         num_retries: int = 2,
         fail_on_error: bool = False,
-        ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+        ai_decide: AiDecideArg = None,
     ):
-        ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
-        _require_one_judge("conciseness", model, ai_decide_model)
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "conciseness", model, ai_decide
+        )
         super().__init__(
             name="conciseness",
             model=model,
@@ -1456,7 +1474,7 @@ def create_guardrail_middleware(
     fail_on_error: bool = False,
     max_context_length: int = 8000,
     apply_to: Literal["input", "output", "both"] = "output",
-    ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+    ai_decide: AiDecideArg = None,
 ) -> GuardrailMiddleware:
     """
     Create a GuardrailMiddleware instance.
@@ -1480,10 +1498,9 @@ def create_guardrail_middleware(
             Defaults to ``"output"`` because an LLM-judge before_model check scores
             the user query against itself and wrongly blocks ordinary turns; pass
             ``"input"``/``"both"`` only for guardrails meant to inspect user input.
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM; *prompt* is asked as a yes/no question that
-            is true when the response passes.  Accepts ``AiDecideJudgeModel``
-            fields as a dict.  Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict to configure it.  *prompt* is asked as a yes/no question.
 
     Returns:
         GuardrailMiddleware configured with the specified parameters
@@ -1497,8 +1514,7 @@ def create_guardrail_middleware(
         )
     """
     logger.trace("Creating guardrail middleware", guardrail_name=name)
-    ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
-    _require_one_judge(name, model, ai_decide_model)
+    ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(name, model, ai_decide)
     return GuardrailMiddleware(
         name=name,
         model=model,
@@ -1546,7 +1562,7 @@ def create_content_filter_middleware(
 def create_safety_guardrail_middleware(
     safety_model: Optional[str] = None,
     fail_on_error: bool = False,
-    ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+    ai_decide: AiDecideArg = None,
 ) -> SafetyGuardrailMiddleware:
     """
     Create a SafetyGuardrailMiddleware instance.
@@ -1558,12 +1574,11 @@ def create_safety_guardrail_middleware(
     Args:
         safety_model: MLflow model string for the safety judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
-            Defaults to ``"openai:/gpt-4o-mini"`` if not provided.
+            When omitted, Databricks ``ai_decide`` judges safety.
         fail_on_error: If True, block responses when the judge call errors (default: False)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Accepts ``AiDecideJudgeModel`` fields as a
-            dict, e.g. ``{"threshold": 0.7}``.
-            Mutually exclusive with *safety_model*.
+        ai_decide: ``ai_decide`` settings when no *safety_model* is given:
+            omit it or pass ``True`` for defaults, or a dict such as
+            ``{"threshold": 0.7}``.
 
     Returns:
         SafetyGuardrailMiddleware configured with the specified model
@@ -1586,7 +1601,7 @@ def create_veracity_guardrail_middleware(
     num_retries: int = 2,
     fail_on_error: bool = False,
     max_context_length: int = 8000,
-    ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+    ai_decide: AiDecideArg = None,
 ) -> VeracityGuardrailMiddleware:
     """
     Create a VeracityGuardrailMiddleware instance.
@@ -1604,10 +1619,9 @@ def create_veracity_guardrail_middleware(
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
         max_context_length: Max chars for extracted tool context (default: 8000)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Accepts ``AiDecideJudgeModel`` fields as a
-            dict, e.g. ``{"threshold": 0.7}``.
-            Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict such as ``{"threshold": 0.7}``.
 
     Returns:
         VeracityGuardrailMiddleware configured with the specified parameters
@@ -1632,7 +1646,7 @@ def create_relevance_guardrail_middleware(
     model: str | None = None,
     num_retries: int = 2,
     fail_on_error: bool = False,
-    ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+    ai_decide: AiDecideArg = None,
 ) -> RelevanceGuardrailMiddleware:
     """
     Create a RelevanceGuardrailMiddleware instance.
@@ -1646,10 +1660,9 @@ def create_relevance_guardrail_middleware(
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Accepts ``AiDecideJudgeModel`` fields as a
-            dict, e.g. ``{"threshold": 0.7}``.
-            Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict such as ``{"threshold": 0.7}``.
 
     Returns:
         RelevanceGuardrailMiddleware configured with the specified parameters
@@ -1674,7 +1687,7 @@ def create_tone_guardrail_middleware(
     custom_guidelines: str | PromptModel | None = None,
     num_retries: int = 2,
     fail_on_error: bool = False,
-    ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+    ai_decide: AiDecideArg = None,
 ) -> ToneGuardrailMiddleware:
     """
     Create a ToneGuardrailMiddleware instance.
@@ -1695,10 +1708,9 @@ def create_tone_guardrail_middleware(
             ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Accepts ``AiDecideJudgeModel`` fields as a
-            dict, e.g. ``{"threshold": 0.7}``.
-            Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict such as ``{"threshold": 0.7}``.
 
     Returns:
         ToneGuardrailMiddleware configured with the specified parameters
@@ -1727,7 +1739,7 @@ def create_conciseness_guardrail_middleware(
     check_verbosity: bool = True,
     num_retries: int = 2,
     fail_on_error: bool = False,
-    ai_decide: AiDecideJudgeModel | dict[str, Any] | None = None,
+    ai_decide: AiDecideArg = None,
 ) -> ConcisenessGuardrailMiddleware:
     """
     Create a ConcisenessGuardrailMiddleware instance.
@@ -1744,10 +1756,9 @@ def create_conciseness_guardrail_middleware(
         check_verbosity: Enable LLM verbosity evaluation (default: True)
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
-        ai_decide: Judge with Databricks ``ai_decide`` (jev-style yes/no)
-            instead of an LLM.  Accepts ``AiDecideJudgeModel`` fields as a
-            dict, e.g. ``{"threshold": 0.7}``.
-            Mutually exclusive with *model*.
+        ai_decide: Databricks ``ai_decide`` judge (the default when no
+            *model* is given): omit it or pass ``True`` for defaults, or a
+            dict such as ``{"threshold": 0.7}``.
 
     Returns:
         ConcisenessGuardrailMiddleware configured with the specified parameters
