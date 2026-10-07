@@ -59,6 +59,7 @@ flowchart TB
 |------|-------------|
 | [`guardrails_basic.yaml`](./guardrails_basic.yaml) | MLflow judge-based guardrails with tone, completeness, and veracity checks |
 | [`guardrails_scorers.yaml`](./guardrails_scorers.yaml) | MLflow Scorer-based guardrails (ToxicLanguage, GibberishText) alongside custom judges |
+| [`guardrails_ai_decide.yaml`](./guardrails_ai_decide.yaml) | Jev-style guardrails and evaluation backed by Databricks `ai_decide`: a custom yes/no guardrail plus the built-in guardrails |
 
 ## How Guardrails Work
 
@@ -256,6 +257,73 @@ middleware:
       check_verbosity: true
 ```
 
+## ai_decide Guardrails (Jev-Style Decisions)
+
+MLflow 3.17 added "Jev decision" judges: structured yes/no and categorical verdicts with calibrated probabilities instead of a free-text critique. MLflow reaches them only through the external TypeSafe API or the OSS MLflow gateway. Databricks serves the same decision model on-platform as the [`ai_decide`](https://docs.databricks.com/aws/en/large-language-models/ai-functions) AI function (Beta), and DAO AI can use it as the guardrail judge.
+
+An ai_decide guardrail asks **one yes/no question**. By default a "yes" passes; with `pass_if: "no"` the question asks whether a violation is present and a "no" passes. The guardrail passes when the pass probability is at or above `threshold`:
+
+```yaml
+guardrails:
+  no_competitors: &no_competitors
+    name: no_competitor_mentions
+    prompt: >-
+      Does {{ outputs }} name a store or retailer other than Brickhouse
+      Hardware? Product brands like DeWalt or Ryobi are not stores.
+    pass_if: "no"            # the question detects a violation
+    ai_decide:
+      threshold: 0.7         # pass probability needed to pass
+    criteria:
+      pass_when: The response does not name any competing retailer.
+      fail_when: >-
+        The response names a competing retailer. Rewrite it without naming
+        any other retailer.
+    num_retries: 2
+```
+
+**Writing good ai_decide questions.** Measured live against known-good and known-bad responses:
+
+- ai_decide reliably *detects that something is present* and is unreliable at *confirming that something is absent*. "Does the response name a competitor?" (`pass_if: "no"`) was correct every time. "Is the response free of competitor names?" scored clean responses as failing. Prefer violation questions with `pass_if: "no"` for "must not contain X" checks.
+- Disambiguate borderline terms in the question itself, e.g. "product brands like DeWalt are not stores".
+- Verbosity is judged strictly: ordinary chat answers that close with offers of further help score as padded, about as low as deliberately padded text. Use `check_verbosity: false` (length check only) unless the agent is meant to be terse.
+- Answers on ambiguous cases can flip between runs (e.g. 0.0 vs 0.95 on the same input), so test each question against a few known-good and known-bad responses before relying on it.
+- DAO AI sends neutral question ids (`q1`, `q2`, ...) because ai_decide reads the id as part of the question: an id like `no_competitor_mentions` overrode instructions asking the opposite. Guardrail and metric names stay local.
+
+The built-in guardrails accept `ai_decide:` in place of `model:` and switch to built-in yes/no questions tuned for ai_decide:
+
+```yaml
+middleware:
+  relevance_middleware:
+    name: dao_ai.middleware.create_relevance_guardrail_middleware
+    args:
+      ai_decide:
+        threshold: 0.5
+```
+
+This works for `create_veracity_guardrail_middleware`, `create_relevance_guardrail_middleware`, `create_tone_guardrail_middleware` (presets and `custom_guidelines`), `create_conciseness_guardrail_middleware`, `create_safety_guardrail_middleware`, and the generic `create_guardrail_middleware`.
+
+| | LLM judge (`model:`) | ai_decide (`ai_decide:`) |
+|---|---|---|
+| Question | Long rubric prompt | One yes/no question (true = pass) |
+| Result | Pass/fail + written rationale | Probability (+ `threshold`, `pass_if`) |
+| Retry feedback | The judge's rationale | `criteria.fail_when` (or the question), plus the probability |
+| Latency per check | Seconds (LLM call) | ~0.2–1 s |
+
+**How it is called.** Each check is `POST /api/2.0/ai-functions/ai-decide` through the Databricks SDK, as the agent's runtime identity (verified on Databricks Apps and on Model Serving with and without an explicit `service_principal`). No warehouse is needed.
+
+**What the judge sees.** ai_decide reads a JSON `state` of `{"inputs": {"query", "context"}, "outputs": {"response"}}`. `{{ inputs }}` / `{{ outputs }}` in the prompt are rewritten to `state.inputs` / `state.outputs`.
+
+## Retry Behavior
+
+When an output guardrail fails, its feedback is added as a message and the model is **re-run** on it. The retry budget is per user turn:
+
+- Each guardrail retries at most `num_retries - 1` times per turn. Passing doesn't refund the budget, so guardrails with conflicting criteria can't keep re-triggering each other.
+- A guardrail that runs out of retries ends the turn with a "Quality Check Failed" notice. Later output guardrails don't judge that notice; `after_agent` checks such as the safety guardrail still run.
+- Guardrails always judge the user's original question, not the retry feedback.
+- The next user turn starts with a fresh budget.
+
+Every retry is another model call (plus a judge call for each guardrail), so keep `num_retries` small and avoid stacking guardrails whose criteria can conflict.
+
 ## Scorer-Based Guardrails (MLflow Scorers)
 
 Scorer-based guardrails use MLflow's `Scorer` interface to plug in any evaluation logic. Any class extending `mlflow.genai.scorers.base.Scorer` can be referenced by fully-qualified name; install whatever runtime dependencies that scorer requires before deploying.
@@ -290,6 +358,7 @@ middleware:
 |------|--------|----------------|-------------|
 | **Custom Judge** | `guardrails:` with `model`+`prompt` | Yes | Fully customizable LLM evaluation |
 | **Scorer-based** | `guardrails:` with `scorer` | No | MLflow Scorer interface (any class extending `Scorer`) |
+| **ai_decide** | `guardrails:` with `ai_decide`+`prompt` | Yes (a yes/no question) | Calibrated probability + `threshold`, sub-second over REST |
 | **Veracity** | `middleware:` section | No | Auto-skips when no tool context |
 | **Relevance** | `middleware:` section | No | Topic drift detection |
 | **Tone** | `middleware:` section | No | Preset profiles (professional, etc.) |

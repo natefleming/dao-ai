@@ -175,7 +175,11 @@ def test_guardrail_success_on_retry(guardrail_middleware, runtime):
     # Second evaluation - passes
     result = guardrail_middleware.after_model(state, runtime)
     assert result is None  # No retry needed
-    assert guardrail_middleware._get_retry_count("test_thread") == 0  # Reset
+    # The budget is per user turn: passing keeps the count for this turn so
+    # conflicting guardrails cannot re-trigger each other indefinitely ...
+    assert guardrail_middleware._get_retry_count("test_thread") == 1
+    # ... and the next user turn starts fresh.
+    assert guardrail_middleware._get_retry_count("test_thread", "next turn") == 0
 
 
 def test_guardrail_skips_tool_calls(guardrail_middleware, runtime):
@@ -375,10 +379,17 @@ def test_guardrail_concurrent_threads(runtime):
         assert middleware._get_retry_count("thread_a") == 1
         assert middleware._get_retry_count("thread_b") == 1
 
-        # Reset thread A by passing
-        mock_evaluator.return_value = Feedback(value=True, rationale="OK")
-        middleware.after_model(state, runtime_a)
-        assert middleware._get_retry_count("thread_a") == 0
+        # A new user turn on thread A starts a fresh budget; thread B is untouched
+        state_a2: AgentState = {
+            "messages": [
+                *state["messages"],
+                HumanMessage(content="A follow-up question"),
+                AIMessage(content="A follow-up answer"),
+            ]
+        }
+        middleware.after_model(state_a2, runtime_a)
+        assert middleware._get_retry_count("thread_a") == 1
+        assert middleware._get_retry_count("thread_a", "stale turn") == 0
         assert middleware._get_retry_count("thread_b") == 1
 
 
