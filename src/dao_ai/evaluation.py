@@ -171,8 +171,6 @@ def prepare_eval_dataframe(
 def create_guidelines_scorers(
     guidelines_config: list[GuidelineModel],
     judge_model: str | None = None,
-    *,
-    ai_decide_default: bool = True,
 ) -> list[Scorer]:
     """
     Create Guidelines scorers from configuration.
@@ -187,9 +185,6 @@ def create_guidelines_scorers(
         guidelines_config: List of guideline configurations with ``name`` and
             ``guidelines`` attributes.
         judge_model: Optional model endpoint override.
-        ai_decide_default: Whether a guideline set with ``ai_decide`` unset
-            uses ai_decide (evaluation) or the LLM judge (production
-            monitoring, where ai_decide scorers can't be registered).
 
     Returns:
         List of configured Guidelines and ai_decide scorers.
@@ -197,9 +192,7 @@ def create_guidelines_scorers(
     scorers: list[Scorer] = []
     ai_decide_groups: dict[str, tuple[AiDecideJudgeModel, dict[str, Any]]] = {}
     for guideline in guidelines_config:
-        ai_decide: AiDecideJudgeModel | None = resolve_ai_decide(
-            guideline.ai_decide, default=ai_decide_default
-        )
+        ai_decide: AiDecideJudgeModel | None = resolve_ai_decide(guideline.ai_decide)
         if ai_decide is not None:
             key: str = ai_decide.model_dump_json()
             _, questions = ai_decide_groups.setdefault(key, (ai_decide, {}))
@@ -239,9 +232,9 @@ def build_scorers(evaluation_config: EvaluationModel) -> list[Scorer]:
     Assembles built-in MLflow judges (Safety, Completeness, RelevanceToQuery,
     ToolCallEfficiency) and any Guidelines scorers defined in the config.
 
-    By default (unless ``evaluation_config.ai_decide`` is ``False``), Safety,
-    Completeness, and RelevanceToQuery -- plus any custom ``decisions`` -- are
-    answered by one ``AiDecideScorer`` (a single ``ai_decide`` call per row). The Feedback
+    When ``evaluation_config.ai_decide`` is set, Safety, Completeness, and
+    RelevanceToQuery -- plus any custom ``decisions`` -- are answered by one
+    ``AiDecideScorer`` (a single ``ai_decide`` call per row). The Feedback
     names match the built-ins. ToolCallEfficiency needs the trace, which
     ai_decide cannot read, so it stays on the LLM judge.
 
@@ -254,7 +247,7 @@ def build_scorers(evaluation_config: EvaluationModel) -> list[Scorer]:
     """
     scorers: list[Scorer]
     ai_decide: AiDecideJudgeModel | None = resolve_ai_decide(
-        evaluation_config.ai_decide, default=True
+        evaluation_config.ai_decide
     )
     if ai_decide is None:
         scorers = [
@@ -566,7 +559,7 @@ def register_monitoring_scorers(
 
     if monitoring_config.guidelines:
         guideline_scorers: list[Scorer] = create_guidelines_scorers(
-            monitoring_config.guidelines, ai_decide_default=False
+            monitoring_config.guidelines
         )
         for gs in guideline_scorers:
             if isinstance(gs, AiDecideScorer):

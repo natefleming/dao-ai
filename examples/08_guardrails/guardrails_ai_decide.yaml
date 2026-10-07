@@ -42,13 +42,14 @@ parameters:
 #     the question) back to the model as the retry instruction.
 #
 # Two ways to use it, both shown below:
-#   1. `guardrails:`  -- your own question (`prompt`) + optional `criteria`
+#   1. `guardrails:`  -- your own question (`prompt`) + `ai_decide` + `criteria`
 #   2. `middleware:`  -- the built-in veracity / relevance / tone / conciseness /
-#                        safety guardrails
+#                        safety guardrails with `ai_decide:` instead of `model:`
 #
-# ai_decide is the default judge: leave out `model:` and it is used. Write
-# `ai_decide: true` to say so explicitly, `ai_decide: {threshold: ...}` to
-# configure it, or set `model:` (and leave `ai_decide` out) for an LLM judge.
+# ai_decide is opt-in: `ai_decide: true` for default settings, or
+# `ai_decide: {threshold: ...}` to configure it. Without it a guardrail needs a
+# `model:` (LLM judge). The LLM judge explains each failure and that critique
+# is fed back to the model on a retry; ai_decide returns only a probability.
 # =============================================================================
 
 schemas:
@@ -114,8 +115,8 @@ guardrails:
 # =============================================================================
 # BUILT-IN GUARDRAILS WITH ai_decide (via middleware)
 # =============================================================================
-# The same factories as guardrails_basic.yaml, minus `model:`. Without a model
-# each uses ai_decide with a built-in yes/no question tuned for it.
+# The same factories as guardrails_basic.yaml; `ai_decide:` replaces `model:`.
+# Each uses a built-in yes/no question tuned for ai_decide.
 
 middleware:
   veracity_middleware: &veracity_middleware
@@ -128,17 +129,20 @@ middleware:
   relevance_middleware: &relevance_middleware
     name: dao_ai.middleware.create_relevance_guardrail_middleware
     args:
+      ai_decide: true
       num_retries: 2
 
   tone_middleware: &tone_middleware
     name: dao_ai.middleware.create_tone_guardrail_middleware
     args:
+      ai_decide: true
       tone: professional
       num_retries: 2
 
   conciseness_middleware: &conciseness_middleware
     name: dao_ai.middleware.create_conciseness_guardrail_middleware
     args:
+      ai_decide: true
       max_length: 2000
       min_length: 10
       # ai_decide judges verbosity strictly: typical chat answers that end with
@@ -150,7 +154,7 @@ middleware:
   safety_middleware: &safety_middleware
     name: dao_ai.middleware.create_safety_guardrail_middleware
     args:
-      ai_decide: true   # explicit; same as omitting it
+      ai_decide: true
 
 # =============================================================================
 # AGENTS
@@ -235,21 +239,31 @@ app:
 # =============================================================================
 # EVALUATION (ai_decide judges)
 # =============================================================================
-# ai_decide is the default judge here too: the built-in safety / completeness /
-# relevance_to_query checks and every `decisions:` question are answered in ONE
-# ai_decide call per row (metric names match the MLflow built-ins), and each
-# guideline set is asked as one yes/no question. Set `ai_decide: false` (on the
-# evaluation or a guideline set) to use the MLflow LLM judges instead.
-# tool_call_efficiency needs the trace, so it always uses the LLM judge (`model`).
+# With `ai_decide:` set, the built-in safety / completeness / relevance_to_query
+# checks and every `decisions:` question are answered in ONE ai_decide call per
+# row (metric names match the MLflow built-ins). Without it, evaluation uses the
+# MLflow LLM judges, which record a rationale per row. A guideline set with its
+# own `ai_decide:` is asked as one yes/no question instead of the Guidelines
+# judge. tool_call_efficiency needs the trace, so it always uses the LLM judge.
 #
 # Note: ai_decide scorers can't be registered for production monitoring
 # (MLflow only registers built-in or @scorer scorers); they're skipped there.
 
-evaluation:
-  model: *default_llm
-  table:
+# The evaluation pipeline generates questions only from vector store
+# documents, and this agent has none, so the questions are seeded as a dataset
+# (ingest-and-transform loads it; generate-evaluation-data then skips). Each
+# row targets a guardrail path -- see data/guardrails_ai_decide_evaluation_data.sql.
+datasets:
+- table: &evaluation_table
     schema: *dao_ai_schema
     name: guardrails_ai_decide_evaluation
+  ddl: data/guardrails_ai_decide_evaluation.sql
+  data: data/guardrails_ai_decide_evaluation_data.sql
+  format: sql
+
+evaluation:
+  model: *default_llm
+  table: *evaluation_table
   num_evals: 10
   agent_description: >-
     Customer assistant for Brickhouse Hardware, a neighborhood hardware store.
@@ -257,11 +271,13 @@ evaluation:
   question_guidelines: |
     - Questions a homeowner would ask a hardware store associate
     - Include tool recommendations, project help, and store policy questions
+  ai_decide: true
   guidelines:
   - name: store_policy
     guidelines:
     - Recommend Brickhouse Hardware's own products, staff, or services
     - Stay on the topic of hardware, tools, and home improvement
+    ai_decide: true
   decisions:
   - name: intent
     type: choice

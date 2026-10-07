@@ -417,9 +417,8 @@ class TestGuardrailMiddlewareAiDecide:
             GuardrailMiddleware(name="g", model="m", prompt="p", ai_decide={})
 
     def test_factory_judge_selection(self):
-        assert isinstance(
-            create_guardrail_middleware(name="g", prompt="p")._scorer, AiDecideScorer
-        )
+        with pytest.raises(ValueError, match="needs a judge"):
+            create_guardrail_middleware(name="g", prompt="p")
         with pytest.raises(ValueError, match="both 'model'"):
             create_guardrail_middleware(name="g", prompt="p", model="m", ai_decide={})
         middleware = create_guardrail_middleware(
@@ -495,7 +494,7 @@ class TestBuiltinGuardrailsAiDecide:
             ToneGuardrailMiddleware,
             ConcisenessGuardrailMiddleware,
         ):
-            assert isinstance(cls()._scorer, AiDecideScorer)
+            assert isinstance(cls(ai_decide=True)._scorer, AiDecideScorer)
             with pytest.raises(ValueError, match="both 'model'"):
                 cls(model="databricks:/m", ai_decide={})
 
@@ -1146,156 +1145,126 @@ class TestReviewFixes:
 
 
 # =============================================================================
-# ai_decide is the default judge
+# Judge selection: LLM judge by default, ai_decide opt-in
 # =============================================================================
 
 
-class TestAiDecideDefault:
-    """No model -> ai_decide defaults; true -> defaults; dict -> configured."""
+class TestJudgeSelection:
+    """model -> LLM judge (default); ai_decide: true / settings -> ai_decide."""
 
     def test_resolver_truth_table(self):
         from dao_ai.config import resolve_ai_decide
 
         configured = AiDecideJudgeModel(threshold=0.8)
-        assert resolve_ai_decide(None, default=True) == AiDecideJudgeModel()
-        assert resolve_ai_decide(None, default=False) is None
-        assert resolve_ai_decide(True, default=False) == AiDecideJudgeModel()
-        assert resolve_ai_decide(False, default=True) is None
-        assert resolve_ai_decide({"threshold": 0.8}, default=False) == configured
-        assert resolve_ai_decide(configured, default=False) is configured
+        assert resolve_ai_decide(None) is None
+        assert resolve_ai_decide(False) is None
+        assert resolve_ai_decide(True) == AiDecideJudgeModel()
+        assert resolve_ai_decide({}) == AiDecideJudgeModel()
+        assert resolve_ai_decide({"threshold": 0.8}) == configured
+        assert resolve_ai_decide(configured) is configured
 
     @pytest.mark.parametrize(
-        "factory,name",
+        "factory",
         [
-            ("create_veracity_guardrail_middleware", "veracity"),
-            ("create_relevance_guardrail_middleware", "relevance"),
-            ("create_tone_guardrail_middleware", "tone_professional"),
-            ("create_conciseness_guardrail_middleware", "conciseness"),
+            "create_veracity_guardrail_middleware",
+            "create_relevance_guardrail_middleware",
+            "create_tone_guardrail_middleware",
+            "create_conciseness_guardrail_middleware",
         ],
     )
-    @pytest.mark.parametrize("ai_decide", [None, True, {"threshold": 0.8}])
-    def test_builtins_default_to_ai_decide(self, factory, name, ai_decide):
+    def test_builtins_need_a_judge(self, factory):
         import dao_ai.middleware.guardrails as guardrails
-
-        kwargs = {} if ai_decide is None else {"ai_decide": ai_decide}
-        middleware = getattr(guardrails, factory)(**kwargs)
-        assert isinstance(middleware._scorer, AiDecideScorer)
-        expected = 0.8 if isinstance(ai_decide, dict) else 0.5
-        assert middleware._scorer._threshold == expected
-
-    def test_builtin_with_model_uses_llm_judge(self):
         from dao_ai.middleware.guardrails import JudgeScorer
 
-        middleware = RelevanceGuardrailMiddleware(model="databricks:/m")
-        assert isinstance(middleware._scorer, JudgeScorer)
-        assert isinstance(
-            RelevanceGuardrailMiddleware(
-                model="databricks:/m", ai_decide=False
-            )._scorer,
-            JudgeScorer,
-        )
+        build = getattr(guardrails, factory)
+        with pytest.raises(ValueError, match="needs a judge"):
+            build()
+        with pytest.raises(ValueError, match="needs a judge"):
+            build(ai_decide=False)
+        assert isinstance(build(model="databricks:/m")._scorer, JudgeScorer)
+        assert isinstance(build(ai_decide=True)._scorer, AiDecideScorer)
+        assert build(ai_decide={"threshold": 0.8})._scorer._threshold == 0.8
 
     @pytest.mark.parametrize("ai_decide", [True, {}, {"threshold": 0.8}])
     def test_model_and_ai_decide_conflict(self, ai_decide):
         with pytest.raises(ValueError, match="both 'model'"):
             RelevanceGuardrailMiddleware(model="databricks:/m", ai_decide=ai_decide)
 
-    def test_ai_decide_false_without_model_errors(self):
-        with pytest.raises(ValueError, match="'ai_decide: false'"):
-            RelevanceGuardrailMiddleware(ai_decide=False)
+    def test_generic_factory(self):
+        from dao_ai.middleware.guardrails import JudgeScorer
 
-    def test_generic_factory_prompt_only_uses_ai_decide(self):
-        middleware = create_guardrail_middleware(name="g", prompt="Helpful?")
-        assert isinstance(middleware._scorer, AiDecideScorer)
+        with pytest.raises(ValueError, match="needs a judge"):
+            create_guardrail_middleware(name="g", prompt="Helpful?")
+        assert isinstance(
+            create_guardrail_middleware(
+                name="g", prompt="Is {{ outputs }} ok?", model="databricks:/m"
+            )._scorer,
+            JudgeScorer,
+        )
+        assert isinstance(
+            create_guardrail_middleware(name="g", prompt="p", ai_decide=True)._scorer,
+            AiDecideScorer,
+        )
 
-    def test_safety_defaults_to_ai_decide_not_openai(self):
-        middleware = SafetyGuardrailMiddleware()
-        assert middleware._ai_decide_scorer is not None
-        assert middleware.model_endpoint is None
+    def test_safety_requires_a_judge(self):
+        with pytest.raises(ValueError, match="needs a judge"):
+            SafetyGuardrailMiddleware()
+        assert SafetyGuardrailMiddleware(ai_decide=True)._ai_decide_scorer is not None
         llm = SafetyGuardrailMiddleware(safety_model="databricks:/m")
         assert llm._ai_decide_scorer is None
         assert llm.model_endpoint == "databricks:/m"
 
-    def test_guardrail_model_prompt_only_uses_ai_decide(self):
-        for value in ({}, {"ai_decide": True}, {"ai_decide": {"threshold": 0.9}}):
-            scorer = GuardrailModel(name="g", prompt="Q?", **value).as_scorer()
-            assert isinstance(scorer, AiDecideScorer)
-        assert (
-            GuardrailModel(name="g", prompt="Q?", ai_decide={"threshold": 0.9})
-            .as_scorer()
-            ._threshold
-            == 0.9
+    def test_guardrail_model(self):
+        from dao_ai.middleware.guardrails import JudgeScorer
+
+        with pytest.raises(ValueError, match="Either 'scorer'"):
+            GuardrailModel(name="g", prompt="Q?")
+        assert isinstance(
+            GuardrailModel(
+                name="g", prompt="Is {{ outputs }} ok?", model="m"
+            ).as_scorer(),
+            JudgeScorer,
         )
-
-    def test_guardrail_model_criteria_and_pass_if_without_explicit_ai_decide(self):
-        scorer = GuardrailModel(
-            name="g",
-            prompt="Names a competitor?",
-            pass_if="no",
-            criteria={"fail_when": "Names a competitor."},
-        ).as_scorer()
-        assert scorer._questions["g"]["pass_if"] == "no"
-
-    def test_guardrail_model_conflicts(self):
+        for value in (True, {}, {"threshold": 0.9}):
+            scorer = GuardrailModel(name="g", prompt="Q?", ai_decide=value).as_scorer()
+            assert isinstance(scorer, AiDecideScorer)
         with pytest.raises(ValueError, match="Cannot combine 'ai_decide'"):
             GuardrailModel(name="g", prompt="Q?", model="m", ai_decide=True)
-        with pytest.raises(ValueError, match="'ai_decide: false'"):
-            GuardrailModel(name="g", prompt="Q?", ai_decide=False)
         with pytest.raises(ValueError, match="only supported with 'ai_decide'"):
             GuardrailModel(name="g", prompt="Q?", model="m", pass_if="no")
 
-    def test_evaluation_defaults_to_ai_decide(self):
+    def test_evaluation_defaults_to_llm_judges(self):
         from mlflow.genai.scorers import Safety, ToolCallEfficiency
 
         from dao_ai.evaluation import build_scorers
 
         scorers = build_scorers(_evaluation())
-        assert [type(s) for s in scorers] == [AiDecideScorer, ToolCallEfficiency]
-        scorers = build_scorers(_evaluation(ai_decide=False))
         assert any(isinstance(s, Safety) for s in scorers)
         assert not any(isinstance(s, AiDecideScorer) for s in scorers)
+        scorers = build_scorers(_evaluation(ai_decide=True))
+        assert [type(s) for s in scorers] == [AiDecideScorer, ToolCallEfficiency]
 
-    def test_decisions_rejected_only_when_ai_decide_false(self):
-        _evaluation(decisions=[{"name": "q", "instructions": "Q?"}])
-        with pytest.raises(ValueError, match="'ai_decide: false'"):
-            _evaluation(
-                ai_decide=False, decisions=[{"name": "q", "instructions": "Q?"}]
-            )
+    def test_decisions_require_ai_decide(self):
+        for value in ({}, {"ai_decide": False}):
+            with pytest.raises(ValueError, match="'decisions' need ai_decide"):
+                _evaluation(decisions=[{"name": "q", "instructions": "Q?"}], **value)
+        _evaluation(ai_decide=True, decisions=[{"name": "q", "instructions": "Q?"}])
 
-    def test_guidelines_default_depends_on_context(self):
+    def test_guidelines_default_to_llm_judge(self):
         from mlflow.genai.scorers import Guidelines
 
         from dao_ai.config import GuidelineModel
         from dao_ai.evaluation import create_guidelines_scorers
 
-        guideline = GuidelineModel(name="g", guidelines=["Be kind"])
-        assert isinstance(create_guidelines_scorers([guideline])[0], AiDecideScorer)
         assert isinstance(
-            create_guidelines_scorers([guideline], ai_decide_default=False)[0],
+            create_guidelines_scorers(
+                [GuidelineModel(name="g", guidelines=["Be kind"])]
+            )[0],
             Guidelines,
         )
-        forced_llm = GuidelineModel(name="g", guidelines=["Be kind"], ai_decide=False)
-        assert isinstance(create_guidelines_scorers([forced_llm])[0], Guidelines)
-
-    def test_monitoring_keeps_unset_guidelines_on_llm_judge(self, monkeypatch):
-        import dao_ai.evaluation as evaluation
-        from dao_ai.config import GuidelineModel, MonitoringModel
-
-        registered: list[tuple[str, type]] = []
-        monkeypatch.setattr(evaluation.mlflow, "set_experiment", lambda **_: None)
-        monkeypatch.setattr(evaluation, "list_scorers", lambda: [])
-        monkeypatch.setattr(
-            evaluation,
-            "_ensure_scorer_running",
-            lambda scorer, name, desired_rate, existing_scorers: (
-                registered.append((name, type(scorer))) or scorer
-            ),
+        assert isinstance(
+            create_guidelines_scorers(
+                [GuidelineModel(name="g", guidelines=["Be kind"], ai_decide=True)]
+            )[0],
+            AiDecideScorer,
         )
-        evaluation.register_monitoring_scorers(
-            MonitoringModel(
-                scorers=[],
-                guidelines=[GuidelineModel(name="unset", guidelines=["x"])],
-            ),
-            experiment_id="1",
-        )
-        assert [name for name, _ in registered] == ["unset"]

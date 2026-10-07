@@ -259,19 +259,18 @@ middleware:
 
 ## ai_decide Guardrails (Jev-Style Decisions)
 
-MLflow 3.17 added "Jev decision" judges: structured yes/no and categorical verdicts with calibrated probabilities instead of a free-text critique. MLflow reaches them only through the external TypeSafe API or the OSS MLflow gateway. Databricks serves the same decision model on-platform as the [`ai_decide`](https://docs.databricks.com/aws/en/large-language-models/ai-functions) AI function (Beta), and **DAO AI uses it as the default judge** for guardrails and evaluation.
+MLflow 3.17 added "Jev decision" judges: structured yes/no and categorical verdicts with calibrated probabilities instead of a free-text critique. MLflow reaches them only through the external TypeSafe API or the OSS MLflow gateway. Databricks serves the same decision model on-platform as the [`ai_decide`](https://docs.databricks.com/aws/en/large-language-models/ai-functions) AI function (Beta), and DAO AI can use it as an **opt-in** judge for guardrails and evaluation.
 
-**Choosing the judge.** The same rule applies to `guardrails:` entries, the built-in guardrail middlewares, and `evaluation:`:
+**Choosing the judge.** The LLM judge is the default, because it explains each failure and that critique is what the model gets on a retry. ai_decide is opt-in. The same rule applies to `guardrails:` entries, the built-in guardrail middlewares, and `evaluation:`:
 
 | You write | Judge |
 |---|---|
-| nothing (no `model:` / `safety_model:` / `scorer:`) | ai_decide with default settings (`threshold: 0.5`) |
-| `ai_decide: true` | ai_decide with default settings (explicit) |
+| `model:` (or `safety_model:` / `scorer:`) | that LLM judge or scorer (written critique) |
+| `ai_decide: true` | ai_decide with default settings (`threshold: 0.5`) |
 | `ai_decide: {threshold: 0.8}` | ai_decide with those settings |
-| `model:` (or `safety_model:` / `scorer:`) | that LLM judge or scorer |
-| `ai_decide: false` | LLM judge -- requires a `model:` (in evaluation: the MLflow built-in judges) |
+| neither | error for guardrails (a judge is required); MLflow LLM judges for `evaluation:` |
 
-Setting both `model:` and `ai_decide: true` (or settings) is an error. Production monitoring is the one exception: ai_decide scorers can't be registered there, so monitoring guidelines with `ai_decide` unset keep the MLflow LLM judge.
+Setting both `model:` and `ai_decide: true` (or settings) is an error. In production monitoring, ai_decide scorers can't be registered, so they're skipped with a warning.
 
 An ai_decide guardrail asks **one yes/no question**. By default a "yes" passes; with `pass_if: "no"` the question asks whether a violation is present and a "no" passes. The guardrail passes when the pass probability is at or above `threshold`:
 
@@ -283,7 +282,7 @@ guardrails:
       Does {{ outputs }} name a store or retailer other than Brickhouse
       Hardware? Product brands like DeWalt or Ryobi are not stores.
     pass_if: "no"            # the question detects a violation
-    ai_decide:               # optional -- omit for the default threshold (0.5)
+    ai_decide:               # or `ai_decide: true` for the default threshold (0.5)
       threshold: 0.7         # pass probability needed to pass
     criteria:
       pass_when: The response does not name any competing retailer.
@@ -301,14 +300,15 @@ guardrails:
 - Answers on ambiguous cases can flip between runs (e.g. 0.0 vs 0.95 on the same input), so test each question against a few known-good and known-bad responses before relying on it.
 - DAO AI sends neutral question ids (`q1`, `q2`, ...) because ai_decide reads the id as part of the question: an id like `no_competitor_mentions` overrode instructions asking the opposite. Guardrail and metric names stay local.
 
-The built-in guardrails use ai_decide with built-in yes/no questions whenever no `model:` is given. Nothing to configure:
+The built-in guardrails accept `ai_decide:` in place of `model:` and switch to built-in yes/no questions tuned for ai_decide:
 
 ```yaml
 middleware:
   relevance_middleware:
     name: dao_ai.middleware.create_relevance_guardrail_middleware
     args:
-      num_retries: 2        # judged by ai_decide (no model)
+      ai_decide: true       # default settings
+      num_retries: 2
 
   strict_tone_middleware:
     name: dao_ai.middleware.create_tone_guardrail_middleware
@@ -318,13 +318,11 @@ middleware:
         threshold: 0.8      # configure ai_decide
 ```
 
-This covers `create_veracity_guardrail_middleware`, `create_relevance_guardrail_middleware`, `create_tone_guardrail_middleware` (presets and `custom_guidelines`), `create_conciseness_guardrail_middleware`, `create_safety_guardrail_middleware`, and the generic `create_guardrail_middleware`. Add `model:` (`safety_model:` for safety) to use an LLM judge instead.
+This covers `create_veracity_guardrail_middleware`, `create_relevance_guardrail_middleware`, `create_tone_guardrail_middleware` (presets and `custom_guidelines`), `create_conciseness_guardrail_middleware`, `create_safety_guardrail_middleware`, and the generic `create_guardrail_middleware`. Each needs exactly one judge: `model:` (`safety_model:` for safety) or `ai_decide:`.
 
-> **Safety default changed.** `create_safety_guardrail_middleware` without `safety_model` previously used `openai:/gpt-4o-mini`, which needs OpenAI credentials; without them every check errored and, with the default `fail_on_error: false`, every response was let through. It now uses ai_decide.
+> **Safety guardrail needs a judge.** `create_safety_guardrail_middleware` used to fall back to `openai:/gpt-4o-mini` when no `safety_model` was set. That needs OpenAI credentials; without them every check errored and, with the default `fail_on_error: false`, every response was let through. It now fails at config load unless `safety_model` or `ai_decide` is set.
 
-> **Evaluation default changed.** An `evaluation:` block without `ai_decide` now scores safety / completeness / relevance_to_query and guideline sets with ai_decide. Set `ai_decide: false` on the evaluation (or on a guideline set) to keep the MLflow LLM judges.
-
-| | LLM judge (`model:`) | ai_decide (default) |
+| | LLM judge (`model:`, default) | ai_decide (`ai_decide:`, opt-in) |
 |---|---|---|
 | Question | Long rubric prompt | One yes/no question (true = pass) |
 | Result | Pass/fail + written rationale | Probability (+ `threshold`, `pass_if`) |
@@ -380,7 +378,7 @@ middleware:
 |------|--------|----------------|-------------|
 | **Custom Judge** | `guardrails:` with `model`+`prompt` | Yes | Fully customizable LLM evaluation |
 | **Scorer-based** | `guardrails:` with `scorer` | No | MLflow Scorer interface (any class extending `Scorer`) |
-| **ai_decide** (default) | `guardrails:` with `prompt` (no `model`) | Yes (a yes/no question) | Calibrated probability + `threshold`, sub-second over REST |
+| **ai_decide** | `guardrails:` with `ai_decide`+`prompt` | Yes (a yes/no question) | Calibrated probability + `threshold`, sub-second over REST; no written critique |
 | **Veracity** | `middleware:` section | No | Auto-skips when no tool context |
 | **Relevance** | `middleware:` section | No | Topic drift detection |
 | **Tone** | `middleware:` section | No | Preset profiles (professional, etc.) |

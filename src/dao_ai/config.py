@@ -8108,20 +8108,19 @@ AiDecideSetting: TypeAlias = Optional[Union[bool, AiDecideJudgeModel]]
 
 
 def resolve_ai_decide(
-    value: bool | AiDecideJudgeModel | dict[str, Any] | None, *, default: bool
+    value: bool | AiDecideJudgeModel | dict[str, Any] | None,
 ) -> AiDecideJudgeModel | None:
     """Resolve an ``ai_decide`` setting to judge settings, or ``None`` for no ai_decide.
 
-    ``True`` means ai_decide with default settings, a dict or
-    ``AiDecideJudgeModel`` configures it, and ``False`` turns it off. An unset
-    value (``None``) follows *default*: ai_decide is the default judge for
-    guardrails and evaluation, but not for production monitoring.
+    ai_decide is opt-in: ``True`` means ai_decide with default settings and a
+    dict or ``AiDecideJudgeModel`` configures it. ``None`` (unset) and
+    ``False`` mean no ai_decide -- the LLM judge, which explains its verdicts.
     """
     if isinstance(value, AiDecideJudgeModel):
         return value
     if isinstance(value, dict):
         return AiDecideJudgeModel.model_validate(value)
-    if value is True or (value is None and default):
+    if value is True:
         return AiDecideJudgeModel()
     return None
 
@@ -8247,10 +8246,11 @@ class GuardrailModel(BaseModel):
        Any ``mlflow.genai.scorers.base.Scorer`` class can be used,
        including built-in ``GuardrailsScorer`` validators such as
        ``ToxicLanguage`` and ``DetectPII``.
-    3. **ai_decide (jev-style, the default)** -- provide only *prompt* (and
-       optionally *ai_decide* settings and *criteria*).  The prompt is asked
-       as a yes/no question through Databricks ``ai_decide``; the guardrail
-       passes when the pass probability meets ``ai_decide.threshold``.
+    3. **ai_decide (jev-style)** -- provide *ai_decide* (``true`` or settings)
+       and *prompt* (and optionally *criteria*).  The prompt is asked as a
+       yes/no question through Databricks ``ai_decide``; the guardrail passes
+       when the pass probability meets ``ai_decide.threshold``.  Faster than
+       an LLM judge but gives no written critique for retries.
 
     The modes are mutually exclusive.
 
@@ -8262,9 +8262,8 @@ class GuardrailModel(BaseModel):
             ``{{ outputs }}`` template variables.  Required when using
             the custom judge or ai_decide mode.  For ai_decide, phrase it
             as a yes/no question that is true when the response passes.
-        ai_decide: ``ai_decide`` judge settings.  Used when neither *model*
-            nor *scorer* is set: omit or ``True`` for defaults, settings to
-            configure it, ``False`` to require another judge.
+        ai_decide: ``ai_decide`` judge settings (``True`` for defaults).
+            Required for ai_decide mode.
         criteria: Optional pass/fail descriptions for the ai_decide question.
             ``fail_when`` is fed back to the model when the guardrail fails.
         pass_if: ``"yes"`` (default) when the prompt asks whether the response
@@ -8302,9 +8301,9 @@ class GuardrailModel(BaseModel):
     ai_decide: AiDecideSetting = Field(
         default=None,
         description=(
-            "Databricks ai_decide judge for the prompt. The default judge when neither "
-            "'model' nor 'scorer' is set: omit it or use true for default settings, give "
-            "settings to configure it, or false to turn it off."
+            "Judge the prompt with Databricks ai_decide instead of an LLM: true for "
+            "default settings, or settings to configure it. Opt-in; the LLM judge "
+            "('model') explains its verdicts, ai_decide returns only a probability."
         ),
     )
     criteria: Optional[DecisionCriteriaModel] = Field(
@@ -8356,36 +8355,37 @@ class GuardrailModel(BaseModel):
     def validate_guardrail_type(self) -> Self:
         has_scorer: bool = self.scorer is not None
         has_model: bool = self.model is not None
-        ai_decide_requested: bool = self.ai_decide not in (None, False)
+        has_ai_decide: bool = resolve_ai_decide(self.ai_decide) is not None
 
         if has_scorer and (has_model or self.prompt is not None):
             raise ValueError(
                 "Cannot specify both 'scorer' and 'model'/'prompt'. "
                 "Use either scorer-based or custom judge configuration."
             )
-        if (has_scorer or has_model) and ai_decide_requested:
+        if (has_scorer or has_model) and has_ai_decide:
             raise ValueError(
                 "Cannot combine 'ai_decide' with 'scorer' or 'model'. "
-                "ai_decide guardrails need only 'prompt' (and optionally 'ai_decide')."
+                "ai_decide guardrails need only 'ai_decide' and 'prompt'."
             )
-        uses_ai_decide: bool = not has_scorer and not has_model
-        if not uses_ai_decide and (self.criteria is not None or self.pass_if != "yes"):
+        if not has_ai_decide and (self.criteria is not None or self.pass_if != "yes"):
             option: str = "criteria" if self.criteria is not None else "pass_if"
             raise ValueError(f"'{option}' is only supported with 'ai_decide'.")
-        if uses_ai_decide:
-            if self.ai_decide is False:
-                raise ValueError(
-                    "'ai_decide: false' needs another judge: set 'model' and "
-                    "'prompt' (LLM judge) or 'scorer'."
-                )
+        if has_ai_decide:
             if self.prompt is None:
-                if ai_decide_requested:
-                    raise ValueError("'prompt' is required for ai_decide guardrails.")
+                raise ValueError("'prompt' is required for ai_decide guardrails.")
+        elif not has_scorer and (not has_model or self.prompt is None):
+            if not has_model and self.prompt is None:
                 raise ValueError(
-                    "Either 'scorer' or both 'model' and 'prompt' (or 'prompt' "
-                    "alone for an ai_decide guardrail) must be provided."
+                    "Either 'scorer' or both 'model' and 'prompt' (or both "
+                    "'ai_decide' and 'prompt') must be provided."
                 )
-        elif has_model and self.prompt is None:
+            if not has_model:
+                raise ValueError(
+                    "Either 'scorer' or both 'model' and 'prompt' (or both "
+                    "'ai_decide' and 'prompt') must be provided: a 'prompt' needs a "
+                    "judge -- 'model' (LLM judge, explains failures) or "
+                    "'ai_decide: true'."
+                )
             raise ValueError(
                 "Both 'model' and 'prompt' are required for custom judge guardrails."
             )
@@ -8396,7 +8396,7 @@ class GuardrailModel(BaseModel):
         """The ai_decide settings when this guardrail uses ai_decide, else ``None``."""
         if self.scorer is not None or self.model is not None:
             return None
-        return resolve_ai_decide(self.ai_decide, default=True)
+        return resolve_ai_decide(self.ai_decide)
 
     @model_validator(mode="after")
     def validate_llm_model(self) -> Self:
@@ -10213,10 +10213,9 @@ class GuidelineModel(BaseModel):
     ai_decide: AiDecideSetting = Field(
         default=None,
         description=(
-            "Judge these guidelines with Databricks ai_decide (one yes/no decision). "
-            "Unset follows the context default: ai_decide in evaluation, the Guidelines "
-            "LLM judge in production monitoring (ai_decide scorers can't be registered "
-            "there). true / settings force ai_decide; false forces the LLM judge."
+            "Judge these guidelines with Databricks ai_decide (one yes/no decision) "
+            "instead of the Guidelines LLM judge: true for default settings, or settings "
+            "to configure it. Evaluation only; skipped for production monitoring."
         ),
     )
 
@@ -11659,16 +11658,15 @@ class EvaluationModel(BaseModel):
     ai_decide: AiDecideSetting = Field(
         default=None,
         description=(
-            "Databricks ai_decide judges the built-in safety, completeness, and "
-            "relevance_to_query checks (and any 'decisions') in one call per row. The "
-            "default: omit it or use true for default settings, give settings to "
-            "configure it, or false to use the MLflow LLM judges instead. "
-            "tool_call_efficiency always uses the LLM judge."
+            "Judge the built-in safety, completeness, and relevance_to_query checks "
+            "(and any 'decisions') with Databricks ai_decide in one call per row, "
+            "instead of the MLflow LLM judges: true for default settings, or settings "
+            "to configure it. tool_call_efficiency always uses the LLM judge."
         ),
     )
     decisions: list[DecisionQuestionModel] = Field(
         default_factory=list,
-        description="Custom ai_decide questions (noul, choice, score) scored for every row. Not allowed with 'ai_decide: false'.",
+        description="Custom ai_decide questions (noul, choice, score) scored for every row. Requires 'ai_decide'.",
     )
 
     # Metric names of the built-in checks ai_decide answers when
@@ -11679,9 +11677,9 @@ class EvaluationModel(BaseModel):
 
     @model_validator(mode="after")
     def validate_decisions(self) -> Self:
-        if self.decisions and self.ai_decide is False:
+        if self.decisions and resolve_ai_decide(self.ai_decide) is None:
             raise ValueError(
-                "'decisions' need ai_decide; remove 'ai_decide: false' from the evaluation."
+                "'decisions' need ai_decide; set 'ai_decide: true' on the evaluation."
             )
         names: list[str] = [d.name for d in self.decisions]
         if len(names) != len(set(names)):
