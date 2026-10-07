@@ -16,6 +16,7 @@ from typing import (
     Any,
     AsyncIterator,
     Callable,
+    ClassVar,
     Final,
     Iterable,
     Iterator,
@@ -8163,7 +8164,7 @@ class DecisionQuestionModel(BaseModel):
     )
     levels: Optional[list[str]] = Field(
         default=None,
-        description="score only: ordered level descriptions, lowest first (at least 2).",
+        description="score only: ordered level descriptions, lowest first (2-10).",
     )
 
     @model_validator(mode="after")
@@ -8180,8 +8181,8 @@ class DecisionQuestionModel(BaseModel):
         elif self.choices is not None:
             raise ValueError("'choices' is only valid for choice questions.")
         if self.type == "score":
-            if not self.levels or len(self.levels) < 2:
-                raise ValueError("score questions require at least 2 'levels'.")
+            if not self.levels or not 2 <= len(self.levels) <= 10:
+                raise ValueError("score questions require 2-10 'levels'.")
         elif self.levels is not None:
             raise ValueError("'levels' is only valid for score questions.")
         return self
@@ -11623,6 +11624,12 @@ class EvaluationModel(BaseModel):
         description="Custom ai_decide questions (noul, choice, score) scored for every row. Requires 'ai_decide'.",
     )
 
+    # Metric names of the built-in checks ai_decide answers when
+    # ``ai_decide`` is set (keys of ``evaluation.AI_DECIDE_BUILTIN_QUESTIONS``).
+    _AI_DECIDE_BUILTIN_METRICS: ClassVar[frozenset[str]] = frozenset(
+        {"safety", "completeness", "relevance_to_query"}
+    )
+
     @model_validator(mode="after")
     def validate_decisions(self) -> Self:
         if self.decisions and self.ai_decide is None:
@@ -11630,6 +11637,12 @@ class EvaluationModel(BaseModel):
         names: list[str] = [d.name for d in self.decisions]
         if len(names) != len(set(names)):
             raise ValueError("'decisions' names must be unique.")
+        shadowed: list[str] = sorted(set(names) & self._AI_DECIDE_BUILTIN_METRICS)
+        if shadowed:
+            raise ValueError(
+                f"'decisions' names {shadowed} collide with built-in ai_decide "
+                "metrics; choose different names."
+            )
         return self
 
     @property

@@ -1091,3 +1091,57 @@ class _NullSpan:
 
     def set_outputs(self, *_):
         pass
+
+
+# =============================================================================
+# Review fixes
+# =============================================================================
+
+
+class TestReviewFixes:
+    def test_score_levels_capped_at_ten(self):
+        from dao_ai.config import DecisionQuestionModel
+
+        DecisionQuestionModel(
+            name="q",
+            type="score",
+            instructions="How?",
+            levels=[f"level {i}" for i in range(10)],
+        )
+        with pytest.raises(ValueError, match="2-10 'levels'"):
+            DecisionQuestionModel(
+                name="q",
+                type="score",
+                instructions="How?",
+                levels=[f"level {i}" for i in range(11)],
+            )
+
+    @pytest.mark.parametrize("name", ["safety", "completeness", "relevance_to_query"])
+    def test_decisions_cannot_shadow_builtin_metrics(self, name):
+        with pytest.raises(ValueError, match="built-in"):
+            _evaluation(ai_decide={}, decisions=[{"name": name, "instructions": "Q?"}])
+
+    def test_retry_tracker_is_bounded(self, runtime, monkeypatch):
+        import dao_ai.middleware.guardrails as guardrails
+
+        monkeypatch.setattr(guardrails, "_MAX_TRACKED_THREADS", 3)
+        middleware = _with_transport(
+            GuardrailMiddleware(
+                name="g", prompt="Q?", ai_decide={}, num_retries=5, apply_to="output"
+            ),
+            FakeTransport({"g": _noul(0.0)}),
+        )
+        for i in range(10):
+            runtime.context = Context(user_id="u", thread_id=f"thread-{i}")
+            middleware.after_model(_turn("answer"), runtime)
+
+        assert len(middleware._retry_counts) == 3
+        assert list(middleware._retry_counts) == ["thread-7", "thread-8", "thread-9"]
+
+    def test_reserved_metric_names_match_builtin_questions(self):
+        from dao_ai.config import EvaluationModel
+        from dao_ai.evaluation import AI_DECIDE_BUILTIN_QUESTIONS
+
+        assert EvaluationModel._AI_DECIDE_BUILTIN_METRICS == set(
+            AI_DECIDE_BUILTIN_QUESTIONS
+        )

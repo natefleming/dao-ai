@@ -25,6 +25,7 @@ DAO AI middleware factory pattern.
 """
 
 import re
+from collections import OrderedDict
 from typing import Any, Literal, Optional
 
 from langchain.agents.middleware import hook_config
@@ -87,6 +88,10 @@ def _extract_tool_context(messages: list[BaseMessage], max_length: int = 8000) -
 
     return "\n\n".join(tool_contents)
 
+
+# Upper bound on threads whose retry budget a guardrail tracks. The oldest
+# thread is evicted first; that only resets its retry budget.
+_MAX_TRACKED_THREADS: int = 10_000
 
 # Marks the HumanMessage a guardrail adds to request a retry, so later
 # evaluations judge the user's actual question rather than the feedback.
@@ -322,8 +327,9 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         self.fail_on_error = fail_on_error
         self.max_context_length = max_context_length
         self._apply_to: Literal["input", "output", "both"] = apply_to
-        # thread_id -> (turn_id, retries used in that turn)
-        self._retry_counts: dict[str, tuple[str, int]] = {}
+        # thread_id -> (turn_id, retries used in that turn), least recently
+        # used first; bounded by _MAX_TRACKED_THREADS.
+        self._retry_counts: OrderedDict[str, tuple[str, int]] = OrderedDict()
         ai_decide_model: AiDecideJudgeModel | None = _as_ai_decide(ai_decide)
 
         if ai_decide_model is not None:
@@ -387,6 +393,9 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         """
         count: int = self._get_retry_count(thread_id, turn_id) + 1
         self._retry_counts[thread_id] = (turn_id, count)
+        self._retry_counts.move_to_end(thread_id)
+        while len(self._retry_counts) > _MAX_TRACKED_THREADS:
+            self._retry_counts.popitem(last=False)
         return count
 
     def _reset_retry_count(self, thread_id: str) -> None:

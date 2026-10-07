@@ -4146,7 +4146,7 @@
             }
           ],
           "default": null,
-          "description": "score only: ordered level descriptions, lowest first (at least 2).",
+          "description": "score only: ordered level descriptions, lowest first (2-10).",
           "title": "Levels"
         }
       },
