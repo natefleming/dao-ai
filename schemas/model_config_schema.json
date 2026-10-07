@@ -927,6 +927,28 @@
       "title": "AgentbricksMemoryToolModel",
       "type": "object"
     },
+    "AiDecideJudgeModel": {
+      "additionalProperties": false,
+      "description": "Databricks ``ai_decide`` as a jev-style judge backend.\n\n``ai_decide`` answers structured yes/no, choice, and score questions with\ncalibrated probabilities instead of a free-text rationale. It is the\non-platform counterpart of MLflow 3.17's TypeSafe \"Jev\" judges. Calls go\nto ``POST /api/2.0/ai-functions/ai-decide`` through the SDK as the agent's\nruntime identity; no warehouse is needed.\n\nAttributes:\n    threshold: Probability at or above which a yes/no answer passes.\n    version: ``ai_decide`` function API version.",
+      "properties": {
+        "threshold": {
+          "default": 0.5,
+          "description": "Probability at or above which a yes/no (noul) answer passes.",
+          "maximum": 1.0,
+          "minimum": 0.0,
+          "title": "Threshold",
+          "type": "number"
+        },
+        "version": {
+          "default": "1.0",
+          "description": "ai_decide function API version.",
+          "title": "Version",
+          "type": "string"
+        }
+      },
+      "title": "AiDecideJudgeModel",
+      "type": "object"
+    },
     "AiSearchEndpoint": {
       "additionalProperties": false,
       "description": "AI Search endpoint that hosts one or more indexes.\n\n(Formerly ``VectorSearchEndpoint``. See :class:`AiSearchEndpointType`.)",
@@ -3993,6 +4015,148 @@
       "title": "DatasetModel",
       "type": "object"
     },
+    "DecisionCriteriaModel": {
+      "additionalProperties": false,
+      "description": "Descriptions of what passes and fails a yes/no ``ai_decide`` question.",
+      "properties": {
+        "pass_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Describes a response that should pass. Also reported as the reason on a pass.",
+          "title": "Pass When"
+        },
+        "fail_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Describes a response that should fail. Fed back to the model on a failed guardrail.",
+          "title": "Fail When"
+        }
+      },
+      "title": "DecisionCriteriaModel",
+      "type": "object"
+    },
+    "DecisionQuestionModel": {
+      "additionalProperties": false,
+      "description": "A custom ``ai_decide`` question scored during evaluation.\n\nThree question types are supported:\n\n* ``noul`` -- yes/no; the Feedback value is ``True`` when the pass\n  probability meets the evaluation's ``ai_decide.threshold``. Optional\n  ``pass_when`` / ``fail_when`` describe each outcome, and\n  ``pass_if: no`` marks a question that asks whether a violation is present.\n* ``choice`` -- picks one of ``choices``; the Feedback value is the label.\n* ``score`` -- rates against ordered ``levels`` (lowest first); the\n  Feedback value is the probability-weighted level index.\n\n``instructions`` may reference ``{{ inputs }}``, ``{{ outputs }}``, and\n``{{ expectations }}``.",
+      "properties": {
+        "name": {
+          "description": "Metric name for this question's Feedback.",
+          "title": "Name",
+          "type": "string"
+        },
+        "type": {
+          "default": "noul",
+          "description": "Question type: 'noul' (yes/no), 'choice' (one label), or 'score' (ordinal levels).",
+          "enum": [
+            "noul",
+            "choice",
+            "score"
+          ],
+          "title": "Type",
+          "type": "string"
+        },
+        "instructions": {
+          "description": "The question to answer. May reference {{ inputs }}, {{ outputs }}, and {{ expectations }}.",
+          "title": "Instructions",
+          "type": "string"
+        },
+        "pass_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "noul only: describes a response that should be judged true.",
+          "title": "Pass When"
+        },
+        "fail_when": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "noul only: describes a response that should be judged false.",
+          "title": "Fail When"
+        },
+        "pass_if": {
+          "default": "yes",
+          "description": "noul only: 'yes' when a yes answer passes, 'no' when the question asks whether a violation is present.",
+          "enum": [
+            "yes",
+            "no"
+          ],
+          "title": "Pass If",
+          "type": "string"
+        },
+        "choices": {
+          "anyOf": [
+            {
+              "additionalProperties": {
+                "anyOf": [
+                  {
+                    "type": "string"
+                  },
+                  {
+                    "type": "null"
+                  }
+                ]
+              },
+              "type": "object"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "choice only: label -> description (description may be null). 1-255 labels.",
+          "title": "Choices"
+        },
+        "levels": {
+          "anyOf": [
+            {
+              "items": {
+                "type": "string"
+              },
+              "type": "array"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "score only: ordered level descriptions, lowest first (2-10).",
+          "title": "Levels"
+        }
+      },
+      "required": [
+        "name",
+        "instructions"
+      ],
+      "title": "DecisionQuestionModel",
+      "type": "object"
+    },
     "DecompositionModel": {
       "additionalProperties": false,
       "description": "Query decomposition settings for instructed retrieval.\n\nDecomposes complex user queries into multiple focused subqueries with\nmetadata filters, executed in parallel and merged using Reciprocal Rank Fusion (RRF).\n\nExample:\n    ```yaml\n    instructed:\n      decomposition:\n        model: *fast_llm\n        max_subqueries: 3\n        rrf_k: 60\n        normalize_filter_case: uppercase\n        examples:\n          - query: \"cheap drills\"\n            filters: {\"price <\": 100}\n    ```",
@@ -4472,6 +4636,30 @@
             "$ref": "#/$defs/GuidelineModel"
           },
           "title": "Guidelines",
+          "type": "array"
+        },
+        "ai_decide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/AiDecideJudgeModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Judge the built-in safety, completeness, and relevance_to_query checks (and any 'decisions') with Databricks ai_decide in one call per row, instead of the MLflow LLM judges: true for default settings, or settings to configure it. tool_call_efficiency always uses the LLM judge.",
+          "title": "Ai Decide"
+        },
+        "decisions": {
+          "description": "Custom ai_decide questions (noul, choice, score) scored for every row. Requires 'ai_decide'.",
+          "items": {
+            "$ref": "#/$defs/DecisionQuestionModel"
+          },
+          "title": "Decisions",
           "type": "array"
         }
       },
@@ -6374,7 +6562,7 @@
     },
     "GuardrailModel": {
       "additionalProperties": false,
-      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nTwo configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n\nThe two modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``InferenceEndpointModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge mode.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
+      "description": "Configuration for a guardrail.\n\nGuardrails evaluate agent responses against quality or safety criteria.\nThree configuration modes are supported:\n\n1. **Custom (LLM-judge)** -- provide *model* and *prompt*.  A\n   ``JudgeScorer`` is created using ``mlflow.genai.judges.make_judge``.\n2. **Scorer-based** -- provide *scorer* (and optionally *scorer_args*).\n   Any ``mlflow.genai.scorers.base.Scorer`` class can be used,\n   including built-in ``GuardrailsScorer`` validators such as\n   ``ToxicLanguage`` and ``DetectPII``.\n3. **ai_decide (jev-style)** -- provide *ai_decide* (``true`` or settings)\n   and *prompt* (and optionally *criteria*).  The prompt is asked as a\n   yes/no question through Databricks ``ai_decide``; the guardrail passes\n   when the pass probability meets ``ai_decide.threshold``.  Faster than\n   an LLM judge but gives no written critique for retries.\n\nThe modes are mutually exclusive.\n\nAttributes:\n    name: Name identifying this guardrail.\n    model: LLM model for the judge.  Accepts a string (model name) or\n        ``InferenceEndpointModel``.  Required when using the custom judge mode.\n    prompt: Evaluation instructions using ``{{ inputs }}`` and\n        ``{{ outputs }}`` template variables.  Required when using\n        the custom judge or ai_decide mode.  For ai_decide, phrase it\n        as a yes/no question that is true when the response passes.\n    ai_decide: ``ai_decide`` judge settings (``True`` for defaults).\n        Required for ai_decide mode.\n    criteria: Optional pass/fail descriptions for the ai_decide question.\n        ``fail_when`` is fed back to the model when the guardrail fails.\n    pass_if: ``\"yes\"`` (default) when the prompt asks whether the response\n        passes; ``\"no\"`` when it asks whether a violation is present.\n    scorer: Fully qualified name of an MLflow ``Scorer`` class\n        (e.g. ``\"mlflow.genai.scorers.guardrails.DetectPII\"``).\n        Required when using the scorer-based mode.\n    scorer_args: Keyword arguments forwarded to the scorer constructor\n        (e.g. ``{\"pii_entities\": [\"CREDIT_CARD\", \"SSN\"]}``).\n    num_retries: Maximum retry attempts when evaluation fails (default: 3).\n    fail_on_error: If True, block responses when the evaluation call\n        itself errors (e.g. scorer exception, network timeout).\n        If False (default), let responses through on evaluation\n        errors.\n    max_context_length: Max character length for extracted tool context\n        (default: 8000).\n    apply_to: When to run this guardrail.  ``\"input\"`` runs before\n        the model (on user messages), ``\"output\"`` runs after the\n        model (on agent responses), ``\"both\"`` runs in both places\n        (default: ``\"both\"``).",
       "properties": {
         "name": {
           "description": "Name identifying this guardrail.",
@@ -6410,8 +6598,46 @@
             }
           ],
           "default": null,
-          "description": "Evaluation instructions using {{ inputs }} and {{ outputs }} template variables. Required for custom judge mode.",
+          "description": "Evaluation instructions using {{ inputs }} and {{ outputs }} template variables. Required for custom judge and ai_decide modes.",
           "title": "Prompt"
+        },
+        "ai_decide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/AiDecideJudgeModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Judge the prompt with Databricks ai_decide instead of an LLM: true for default settings, or settings to configure it. Opt-in; the LLM judge ('model') explains its verdicts, ai_decide returns only a probability.",
+          "title": "Ai Decide"
+        },
+        "criteria": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/DecisionCriteriaModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Pass/fail descriptions for the ai_decide question. Only valid with ai_decide."
+        },
+        "pass_if": {
+          "default": "yes",
+          "description": "ai_decide only: 'yes' when the prompt asks whether the response passes, 'no' when it asks whether a violation is present (e.g. 'Does the response name a competitor?'). ai_decide detects presence more reliably than absence, so prefer violation questions with pass_if: no.",
+          "enum": [
+            "yes",
+            "no"
+          ],
+          "title": "Pass If",
+          "type": "string"
         },
         "scorer": {
           "anyOf": [
@@ -6505,6 +6731,22 @@
           },
           "title": "Guidelines",
           "type": "array"
+        },
+        "ai_decide": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "$ref": "#/$defs/AiDecideJudgeModel"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "description": "Judge these guidelines with Databricks ai_decide (one yes/no decision) instead of the Guidelines LLM judge: true for default settings, or settings to configure it. Evaluation only; skipped for production monitoring.",
+          "title": "Ai Decide"
         }
       },
       "required": [

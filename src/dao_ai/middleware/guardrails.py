@@ -14,6 +14,8 @@ Guardrails can be powered by:
    subclass, including built-in ``GuardrailsScorer`` validators from
    ``mlflow.genai.scorers.guardrails`` (e.g. ``ToxicLanguage``,
    ``DetectPII``).
+3. **Databricks ai_decide** (``AiDecideScorer``) -- jev-style yes/no
+   decisions with calibrated probabilities and a tunable pass threshold.
 
 All scorers are wrapped in ``GuardrailMiddleware`` which handles the
 agent lifecycle (retry logic, message extraction, feedback interpretation).
@@ -23,6 +25,7 @@ DAO AI middleware factory pattern.
 """
 
 import re
+from collections import OrderedDict
 from typing import Any, Literal, Optional
 
 from langchain.agents.middleware import hook_config
@@ -34,7 +37,8 @@ from mlflow.genai.judges import make_judge
 from mlflow.genai.scorers.base import Scorer
 from pydantic import PrivateAttr
 
-from dao_ai.config import PromptModel
+from dao_ai.config import AiDecideJudgeModel, PromptModel, resolve_ai_decide
+from dao_ai.judges.ai_decide import AiDecideScorer, noul_question
 from dao_ai.messages import last_ai_message, last_human_message
 from dao_ai.middleware._prompt_utils import resolve_prompt
 from dao_ai.middleware.base import AgentMiddleware
@@ -83,6 +87,57 @@ def _extract_tool_context(messages: list[BaseMessage], max_length: int = 8000) -
             total_length += len(content)
 
     return "\n\n".join(tool_contents)
+
+
+# Upper bound on threads whose retry budget a guardrail tracks. The oldest
+# thread is evicted first; that only resets its retry budget.
+_MAX_TRACKED_THREADS: int = 10_000
+
+# Marks the HumanMessage a guardrail adds to request a retry, so later
+# evaluations judge the user's actual question rather than the feedback.
+_GUARDRAIL_FEEDBACK_KEY: str = "dao_ai_guardrail_feedback"
+
+
+def _retry_message(content: str) -> HumanMessage:
+    """Build the feedback message that asks the model to retry."""
+    return HumanMessage(
+        content=content, additional_kwargs={_GUARDRAIL_FEEDBACK_KEY: True}
+    )
+
+
+# Marks the AIMessage a guardrail adds when it gives up (retries exhausted or
+# the judge errored), so later checks judge the agent's answer, not the notice.
+_GUARDRAIL_NOTICE_KEY: str = "dao_ai_guardrail_notice"
+
+
+def _guardrail_notice(content: str) -> AIMessage:
+    """Build the notice a guardrail appends when it ends the turn."""
+    return AIMessage(content=content, additional_kwargs={_GUARDRAIL_NOTICE_KEY: True})
+
+
+def _last_agent_message(messages: list[BaseMessage]) -> AIMessage | None:
+    """Return the last AIMessage that is not a guardrail notice."""
+    for message in reversed(messages):
+        if isinstance(message, AIMessage) and not message.additional_kwargs.get(
+            _GUARDRAIL_NOTICE_KEY
+        ):
+            return message
+    return None
+
+
+def _last_user_message(messages: list[BaseMessage]) -> HumanMessage | None:
+    """Return the last HumanMessage that is not guardrail retry feedback."""
+    for message in reversed(messages):
+        if isinstance(message, HumanMessage) and not message.additional_kwargs.get(
+            _GUARDRAIL_FEEDBACK_KEY
+        ):
+            return message
+    return None
+
+
+def _turn_id(message: HumanMessage) -> str:
+    """Identify the user turn a retry budget belongs to."""
+    return message.id or str(hash(_extract_text_content(message)))
 
 
 def _get_thread_id(runtime: Runtime[Context]) -> str:
@@ -162,6 +217,34 @@ def _interpret_feedback(
     return str(value).lower() in ("yes", "true", "pass", "safe"), comment
 
 
+AiDecideArg = bool | AiDecideJudgeModel | dict[str, Any] | None
+
+
+def _resolve_judge(
+    guardrail: str, model: str | None, ai_decide: AiDecideArg
+) -> AiDecideJudgeModel | None:
+    """Pick the judge: an LLM ``model`` or opt-in ai_decide.
+
+    Returns the ai_decide settings, or ``None`` when *model* is the judge.
+    ``ai_decide`` is ``True`` (defaults) or a settings dict /
+    ``AiDecideJudgeModel``; ``None`` / ``False`` mean no ai_decide.
+    """
+    resolved: AiDecideJudgeModel | None = resolve_ai_decide(ai_decide)
+    if model is not None:
+        if resolved is not None:
+            raise ValueError(
+                f"The '{guardrail}' guardrail can't use both 'model' (LLM judge) "
+                "and 'ai_decide'; remove one."
+            )
+        return None
+    if resolved is None:
+        raise ValueError(
+            f"The '{guardrail}' guardrail needs a judge: set 'model' (LLM judge, "
+            "which explains failures) or 'ai_decide: true'."
+        )
+    return resolved
+
+
 __all__ = [
     "JudgeScorer",
     "GuardrailMiddleware",
@@ -195,6 +278,8 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
     * Any ``mlflow.genai.scorers.base.Scorer`` subclass, including
       built-in ``GuardrailsScorer`` validators such as ``ToxicLanguage``
       or ``DetectPII``.
+    * An ``AiDecideScorer`` asking a yes/no question through Databricks
+      ``ai_decide`` (created automatically when *ai_decide* is supplied).
 
     Tool context from ``ToolMessage`` objects in the conversation history
     is automatically extracted and included in the ``inputs`` dict, so
@@ -209,7 +294,13 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
             Creates a ``JudgeScorer`` internally.  Requires *prompt*.
         prompt: Evaluation instructions using ``{{ inputs }}`` and
             ``{{ outputs }}`` template variables.  Accepts a plain string
-            or a ``PromptModel``.  Requires *model*.
+            or a ``PromptModel``.
+        ai_decide: Databricks ``ai_decide`` judge settings (``True`` for
+            defaults, or a dict / ``AiDecideJudgeModel``).  Asks *decision*
+            -- or *prompt* as a yes/no question.  Mutually exclusive with
+            *scorer* and *model*.
+        decision: ``ai_decide`` question spec used with *ai_decide* instead
+            of *prompt* (see ``dao_ai.judges.ai_decide.noul_question``).
         num_retries: Maximum number of retry attempts (default: 3).
         fail_on_error: If True, block responses when the scorer call
             itself errors (e.g. exception, network timeout).  If False
@@ -222,8 +313,8 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
             (default: ``"both"``).
 
     Raises:
-        ValueError: If neither *scorer* nor *model*/*prompt* are provided,
-            or if both are provided simultaneously.
+        ValueError: If no judge (*scorer*, *model*/*prompt*, or
+            *ai_decide*) is provided, or if more than one is provided.
     """
 
     def __init__(
@@ -232,6 +323,8 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         scorer: Scorer | None = None,
         model: str | None = None,
         prompt: str | PromptModel | None = None,
+        ai_decide: AiDecideArg = None,
+        decision: dict[str, Any] | None = None,
         num_retries: int = 3,
         fail_on_error: bool = False,
         max_context_length: int = 8000,
@@ -243,9 +336,36 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         self.fail_on_error = fail_on_error
         self.max_context_length = max_context_length
         self._apply_to: Literal["input", "output", "both"] = apply_to
-        self._retry_counts: dict[str, int] = {}
+        # thread_id -> (turn_id, retries used in that turn), least recently
+        # used first; bounded by _MAX_TRACKED_THREADS.
+        self._retry_counts: OrderedDict[str, tuple[str, int]] = OrderedDict()
+        if scorer is not None and resolve_ai_decide(ai_decide) is not None:
+            raise ValueError("Cannot combine 'ai_decide' with 'scorer'.")
+        if scorer is None and model is None and resolve_ai_decide(ai_decide) is None:
+            raise ValueError(
+                "Either 'scorer' or both 'model' and 'prompt' (or 'ai_decide' "
+                "with a 'prompt') must be provided to GuardrailMiddleware."
+            )
+        ai_decide_model: AiDecideJudgeModel | None = (
+            None if scorer is not None else _resolve_judge(name, model, ai_decide)
+        )
 
-        if scorer is not None:
+        if ai_decide_model is not None:
+            if decision is None:
+                if prompt is None:
+                    raise ValueError(
+                        "'ai_decide' requires a 'prompt' or a 'decision' question."
+                    )
+                decision = noul_question(resolve_prompt(prompt, jinja=True))
+            self._scorer = AiDecideScorer(
+                name=name,
+                questions={name: decision},
+                transport=ai_decide_model.as_transport(),
+                threshold=ai_decide_model.threshold,
+            )
+            self.model_endpoint = None
+            self.prompt = decision["instructions"]
+        elif scorer is not None:
             if model is not None or prompt is not None:
                 raise ValueError(
                     "Cannot specify both 'scorer' and 'model'/'prompt'. "
@@ -275,14 +395,23 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         """Return the guardrail name for middleware identification."""
         return self.guardrail_name
 
-    def _get_retry_count(self, thread_id: str) -> int:
-        """Get current retry count for a thread."""
-        return self._retry_counts.get(thread_id, 0)
+    def _get_retry_count(self, thread_id: str, turn_id: str | None = None) -> int:
+        """Get the retries used for a thread in *turn_id* (or its latest turn)."""
+        turn, count = self._retry_counts.get(thread_id, ("", 0))
+        return count if turn_id is None or turn == turn_id else 0
 
-    def _increment_retry_count(self, thread_id: str) -> int:
-        """Increment and return retry count for a thread."""
-        count: int = self._retry_counts.get(thread_id, 0) + 1
-        self._retry_counts[thread_id] = count
+    def _increment_retry_count(self, thread_id: str, turn_id: str = "") -> int:
+        """Increment and return the retries used for a thread in this turn.
+
+        Counts are scoped to the user turn and are not reset when the
+        guardrail passes, so guardrails with conflicting criteria cannot
+        keep re-triggering each other within one turn.
+        """
+        count: int = self._get_retry_count(thread_id, turn_id) + 1
+        self._retry_counts[thread_id] = (turn_id, count)
+        self._retry_counts.move_to_end(thread_id)
+        while len(self._retry_counts) > _MAX_TRACKED_THREADS:
+            self._retry_counts.popitem(last=False)
         return count
 
     def _reset_retry_count(self, thread_id: str) -> None:
@@ -306,7 +435,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         if not messages:
             return None
 
-        human_message: HumanMessage | None = last_human_message(messages)
+        human_message: HumanMessage | None = _last_user_message(messages)
         if not human_message:
             return None
 
@@ -374,6 +503,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
             "jump_to": "end",
         }
 
+    @hook_config(can_jump_to=["model", "end"])
     def after_model(
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
@@ -398,7 +528,7 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
             return None
 
         ai_message: AIMessage | None = last_ai_message(messages)
-        human_message: HumanMessage | None = last_human_message(messages)
+        human_message: HumanMessage | None = _last_user_message(messages)
 
         if not ai_message or not human_message:
             return None
@@ -458,7 +588,11 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                     f"and could not validate the response.\n\n"
                     f"**Error:** {e}"
                 )
-                return {"messages": [AIMessage(content=failure_message)]}
+                # End the turn so later guardrails don't judge this notice.
+                return {
+                    "messages": [_guardrail_notice(failure_message)],
+                    "jump_to": "end",
+                }
             else:
                 logger.warning(
                     "Guardrail evaluation error - letting response through",
@@ -473,10 +607,11 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                 guardrail_name=self.guardrail_name,
                 comment=comment,
             )
-            self._reset_retry_count(thread_id)
             return None
         else:
-            retry_count: int = self._increment_retry_count(thread_id)
+            retry_count: int = self._increment_retry_count(
+                thread_id, _turn_id(human_message)
+            )
 
             if retry_count >= self.num_retries:
                 logger.warning(
@@ -496,7 +631,11 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
                     f"**Issue:** {comment}\n\n"
                     f"The best available response has been provided, but please be aware it may not fully meet quality expectations."
                 )
-                return {"messages": [AIMessage(content=failure_message)]}
+                # End the turn so later guardrails don't judge this notice.
+                return {
+                    "messages": [_guardrail_notice(failure_message)],
+                    "jump_to": "end",
+                }
 
             logger.warning(
                 "Guardrail requested improvements",
@@ -508,7 +647,10 @@ class GuardrailMiddleware(AgentMiddleware[AgentState, Context]):
 
             human_text: str = _extract_text_content(human_message)
             content: str = "\n".join([human_text, comment])
-            return {"messages": [HumanMessage(content=content)]}
+            # Re-run the model on the feedback. Without an explicit jump the
+            # agent loop ends here (the last AIMessage has no tool calls) and
+            # the failing response is returned as-is.
+            return {"messages": [_retry_message(content)], "jump_to": "model"}
 
 
 class ContentFilterMiddleware(AgentMiddleware[AgentState, Context]):
@@ -603,20 +745,37 @@ class SafetyGuardrailMiddleware(AgentMiddleware[AgentState, Context]):
     Args:
         safety_model: MLflow model string for the safety judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
-            Defaults to ``"openai:/gpt-4o-mini"`` if not provided.
+            Required unless *ai_decide* is set.
         fail_on_error: If True, block responses when the judge call
             itself errors.  If False (default), let responses through
             on evaluation errors.
+        ai_decide: Judge safety with Databricks ``ai_decide`` instead of an
+            LLM: ``True`` for defaults, or a dict to configure it.
+            Mutually exclusive with *safety_model*.
     """
 
     def __init__(
         self,
         safety_model: Optional[str] = None,
         fail_on_error: bool = False,
+        ai_decide: AiDecideArg = None,
     ):
         super().__init__()
-        self.model_endpoint: str = safety_model or "openai:/gpt-4o-mini"
         self.fail_on_error = fail_on_error
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "safety", safety_model, ai_decide
+        )
+        self._ai_decide_scorer: AiDecideScorer | None = None
+        if ai_decide_model is not None:
+            self.model_endpoint: str | None = None
+            self._ai_decide_scorer = AiDecideScorer(
+                name="safety_guardrail",
+                questions={"safety_guardrail": SAFETY_DECISION},
+                transport=ai_decide_model.as_transport(),
+                threshold=ai_decide_model.threshold,
+            )
+            return
+        self.model_endpoint = safety_model
         self._safety_judge = make_judge(
             name="safety_guardrail",
             instructions=(
@@ -644,17 +803,23 @@ class SafetyGuardrailMiddleware(AgentMiddleware[AgentState, Context]):
         if not messages:
             return None
 
-        ai_msg: AIMessage | None = last_ai_message(messages)
+        ai_msg: AIMessage | None = _last_agent_message(messages)
         if not ai_msg:
             return None
 
         ai_content: str = _extract_text_content(ai_msg)
 
         try:
-            feedback = self._safety_judge(
-                outputs={"response": ai_content},
-            )
-            is_unsafe: bool = feedback.value == "unsafe"
+            if self._ai_decide_scorer is not None:
+                passed, _ = _interpret_feedback(
+                    self._ai_decide_scorer(outputs={"response": ai_content})
+                )
+                is_unsafe: bool = not passed
+            else:
+                feedback = self._safety_judge(
+                    outputs={"response": ai_content},
+                )
+                is_unsafe = feedback.value == "unsafe"
         except Exception as e:
             logger.error(
                 "Safety guardrail judge call failed",
@@ -841,6 +1006,95 @@ Provide specific feedback on what to cut or tighten."""
 
 
 # =============================================================================
+# Built-in ai_decide (jev-style) Questions for Specialized Guardrails
+# =============================================================================
+#
+# ai_decide answers short yes/no questions with a probability and no
+# rationale, so these are phrased as single questions with pass/fail criteria
+# rather than reusing the long LLM-judge rubrics above. ai_decide detects that
+# something is present more reliably than it confirms an absence, so where it
+# measured better against known-good/bad responses a question asks whether a
+# violation is present (pass_if="no"); the rest ask whether the response passes.
+# The guardrail state is {"inputs": {"query", "context"}, "outputs":
+# {"response"}}; ai_decide reads it through ``state.*`` references.
+
+VERACITY_DECISION: dict[str, Any] = noul_question(
+    "Is every claim in state.outputs.response supported by the tool results "
+    "in state.inputs.context, with no fabricated, distorted, or unsupported "
+    "facts, numbers, or details?",
+    pass_when="Every claim in the response is supported by the tool results.",
+    fail_when="The response includes claims, facts, or numbers that the tool "
+    "results do not support. Answer only from the tool results.",
+)
+
+RELEVANCE_DECISION: dict[str, Any] = noul_question(
+    "Does state.outputs.response directly answer state.inputs.query, stay on "
+    "topic, and cover every part of the question?",
+    pass_when="The response directly and fully answers the user's question.",
+    fail_when="The response is off-topic, only partially relevant, or misses "
+    "part of the user's question. Answer exactly what was asked.",
+)
+
+TONE_DECISIONS: dict[str, dict[str, Any]] = {
+    "professional": noul_question(
+        "Does state.outputs.response use slang, sarcasm, rudeness, or casual or "
+        "dismissive language that would be unprofessional with a customer?",
+        pass_when="The response is professional and courteous.",
+        fail_when="The response uses unprofessional, informal, or dismissive "
+        "language. Rewrite it in a polished, professional tone.",
+        pass_if="no",
+    ),
+    "casual": noul_question(
+        "Is state.outputs.response written in a friendly, conversational tone "
+        "that is warm and approachable without being stiff or bureaucratic?",
+        pass_when="The response is friendly and conversational.",
+        fail_when="The response is too formal, stiff, or robotic. Rewrite it in "
+        "a friendly, conversational tone.",
+    ),
+    "technical": noul_question(
+        "Is state.outputs.response technically precise, logically organized, "
+        "and detailed enough for a technical audience?",
+        pass_when="The response is technically precise and well organized.",
+        fail_when="The response is imprecise, too shallow, or poorly organized "
+        "for a technical audience. Add precise technical detail.",
+    ),
+    "empathetic": noul_question(
+        "Does state.outputs.response acknowledge the user's situation or "
+        "feelings in state.inputs.query and respond with patient, supportive "
+        "language before offering next steps?",
+        pass_when="The response is empathetic and supportive.",
+        fail_when="The response is cold or dismissive. Acknowledge the user's "
+        "situation and respond supportively.",
+    ),
+    "concise": noul_question(
+        "Does state.outputs.response include preamble, repetition, or filler "
+        "instead of getting straight to the point?",
+        pass_when="The response is concise and complete.",
+        fail_when="The response is verbose, repetitive, or padded. Tighten it.",
+        pass_if="no",
+    ),
+}
+
+CONCISENESS_DECISION: dict[str, Any] = noul_question(
+    "Does state.outputs.response contain filler, repetition, needless "
+    "preamble, or padding that could be cut without losing any information?",
+    pass_when="The response is well balanced in length and information density.",
+    fail_when="The response is verbose, repetitive, or padded. Cut filler and "
+    "repetition while keeping the answer complete.",
+    pass_if="no",
+)
+
+SAFETY_DECISION: dict[str, Any] = noul_question(
+    "Is state.outputs.response safe and appropriate: free of harmful, "
+    "dangerous, or illegal content, exposed personal information, hate "
+    "speech, harassment, and instructions for dangerous activities?",
+    pass_when="The response is safe and appropriate.",
+    fail_when="The response contains harmful, dangerous, illegal, hateful, "
+    "or privacy-violating content.",
+)
+
+
+# =============================================================================
 # Specialized Guardrail Middleware Classes
 # =============================================================================
 
@@ -862,19 +1116,29 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
         max_context_length: Max chars for extracted tool context (default: 8000)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict to configure it.  Faster, but
+            gives no written critique for retries.  Mutually exclusive with
+            *model*; one of the two is required.
     """
 
     def __init__(
         self,
-        model: str,
+        model: str | None = None,
         num_retries: int = 2,
         fail_on_error: bool = False,
         max_context_length: int = 8000,
+        ai_decide: AiDecideArg = None,
     ):
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "veracity", model, ai_decide
+        )
         super().__init__(
             name="veracity",
             model=model,
-            prompt=VERACITY_INSTRUCTIONS,
+            prompt=None if ai_decide_model else VERACITY_INSTRUCTIONS,
+            ai_decide=ai_decide_model,
+            decision=VERACITY_DECISION,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
             max_context_length=max_context_length,
@@ -885,6 +1149,7 @@ class VeracityGuardrailMiddleware(GuardrailMiddleware):
             apply_to="output",
         )
 
+    @hook_config(can_jump_to=["model", "end"])
     def after_model(
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
@@ -925,18 +1190,28 @@ class RelevanceGuardrailMiddleware(GuardrailMiddleware):
         model: MLflow model string for the judge
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict to configure it.  Faster, but
+            gives no written critique for retries.  Mutually exclusive with
+            *model*; one of the two is required.
     """
 
     def __init__(
         self,
-        model: str,
+        model: str | None = None,
         num_retries: int = 2,
         fail_on_error: bool = False,
+        ai_decide: AiDecideArg = None,
     ):
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "relevance", model, ai_decide
+        )
         super().__init__(
             name="relevance",
             model=model,
-            prompt=RELEVANCE_INSTRUCTIONS,
+            prompt=None if ai_decide_model else RELEVANCE_INSTRUCTIONS,
+            ai_decide=ai_decide_model,
+            decision=RELEVANCE_DECISION,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
             # Response-quality guardrail: evaluate the answer, not the input. See
@@ -964,6 +1239,10 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
             or a ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict to configure it.  Faster, but
+            gives no written critique for retries.  Mutually exclusive with
+            *model*; one of the two is required.
 
     Raises:
         ValueError: If ``tone`` is not a recognized profile and no
@@ -974,12 +1253,16 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
 
     def __init__(
         self,
-        model: str,
+        model: str | None = None,
         tone: str = "professional",
         custom_guidelines: str | PromptModel | None = None,
         num_retries: int = 2,
         fail_on_error: bool = False,
+        ai_decide: AiDecideArg = None,
     ):
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            f"tone_{tone}", model, ai_decide
+        )
         if custom_guidelines:
             prompt: str | PromptModel = custom_guidelines
         elif tone in TONE_PROFILES:
@@ -993,10 +1276,17 @@ class ToneGuardrailMiddleware(GuardrailMiddleware):
 
         self.tone = tone
 
+        # Custom guidelines are asked as-is; presets use the jev question.
+        decision: dict[str, Any] | None = (
+            TONE_DECISIONS[tone] if ai_decide_model and not custom_guidelines else None
+        )
+
         super().__init__(
             name=f"tone_{tone}",
             model=model,
             prompt=prompt,
+            ai_decide=ai_decide_model,
+            decision=decision,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
             # Response-quality guardrail: evaluate the answer, not the input.
@@ -1020,21 +1310,31 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
             check passes (default: True)
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict to configure it.  Faster, but
+            gives no written critique for retries.  Mutually exclusive with
+            *model*; one of the two is required.
     """
 
     def __init__(
         self,
-        model: str,
+        model: str | None = None,
         max_length: int = 3000,
         min_length: int = 20,
         check_verbosity: bool = True,
         num_retries: int = 2,
         fail_on_error: bool = False,
+        ai_decide: AiDecideArg = None,
     ):
+        ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(
+            "conciseness", model, ai_decide
+        )
         super().__init__(
             name="conciseness",
             model=model,
-            prompt=CONCISENESS_INSTRUCTIONS,
+            prompt=None if ai_decide_model else CONCISENESS_INSTRUCTIONS,
+            ai_decide=ai_decide_model,
+            decision=CONCISENESS_DECISION,
             num_retries=num_retries,
             fail_on_error=fail_on_error,
             # Response-quality guardrail: evaluate the answer, not the input.
@@ -1044,6 +1344,7 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
         self.min_length = min_length
         self.check_verbosity = check_verbosity
 
+    @hook_config(can_jump_to=["model", "end"])
     def after_model(
         self, state: AgentState, runtime: Runtime[Context]
     ) -> dict[str, Any] | None:
@@ -1060,7 +1361,7 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
             return None
 
         ai_message: AIMessage | None = last_ai_message(messages)
-        human_message: HumanMessage | None = last_human_message(messages)
+        human_message: HumanMessage | None = _last_user_message(messages)
 
         if not ai_message or not human_message:
             return None
@@ -1079,7 +1380,9 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
 
         # --- Deterministic length check (fast, no LLM) ---
         if content_length > self.max_length:
-            retry_count: int = self._increment_retry_count(thread_id)
+            retry_count: int = self._increment_retry_count(
+                thread_id, _turn_id(human_message)
+            )
 
             if retry_count >= self.num_retries:
                 logger.warning(
@@ -1094,7 +1397,11 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
                     f"The response exceeded the maximum length of {self.max_length} characters "
                     f"after {self.num_retries} attempts."
                 )
-                return {"messages": [AIMessage(content=failure_message)]}
+                # End the turn so later guardrails don't judge this notice.
+                return {
+                    "messages": [_guardrail_notice(failure_message)],
+                    "jump_to": "end",
+                }
 
             logger.warning(
                 "Conciseness guardrail - response too long",
@@ -1109,11 +1416,14 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
                 f"maximum of {self.max_length}. Please provide a more concise response."
             )
             return {
-                "messages": [HumanMessage(content="\n".join([human_text, feedback]))]
+                "messages": [_retry_message("\n".join([human_text, feedback]))],
+                "jump_to": "model",
             }
 
         if content_length < self.min_length:
-            retry_count = self._increment_retry_count(thread_id)
+            retry_count = self._increment_retry_count(
+                thread_id, _turn_id(human_message)
+            )
 
             if retry_count >= self.num_retries:
                 logger.warning(
@@ -1128,7 +1438,11 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
                     f"The response was shorter than the minimum of {self.min_length} characters "
                     f"after {self.num_retries} attempts."
                 )
-                return {"messages": [AIMessage(content=failure_message)]}
+                # End the turn so later guardrails don't judge this notice.
+                return {
+                    "messages": [_guardrail_notice(failure_message)],
+                    "jump_to": "end",
+                }
 
             logger.warning(
                 "Conciseness guardrail - response too short",
@@ -1143,7 +1457,8 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
                 f"the minimum of {self.min_length}. Please provide a more complete response."
             )
             return {
-                "messages": [HumanMessage(content="\n".join([human_text, feedback]))]
+                "messages": [_retry_message("\n".join([human_text, feedback]))],
+                "jump_to": "model",
             }
 
         # --- LLM verbosity check (optional) ---
@@ -1151,7 +1466,6 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
             return super().after_model(state, runtime)
 
         # Length passes and verbosity check disabled
-        self._reset_retry_count(thread_id)
         return None
 
 
@@ -1162,12 +1476,13 @@ class ConcisenessGuardrailMiddleware(GuardrailMiddleware):
 
 def create_guardrail_middleware(
     name: str,
-    model: str,
-    prompt: str | PromptModel,
+    model: str | None = None,
+    prompt: str | PromptModel | None = None,
     num_retries: int = 3,
     fail_on_error: bool = False,
     max_context_length: int = 8000,
     apply_to: Literal["input", "output", "both"] = "output",
+    ai_decide: AiDecideArg = None,
 ) -> GuardrailMiddleware:
     """
     Create a GuardrailMiddleware instance.
@@ -1191,6 +1506,10 @@ def create_guardrail_middleware(
             Defaults to ``"output"`` because an LLM-judge before_model check scores
             the user query against itself and wrongly blocks ordinary turns; pass
             ``"input"``/``"both"`` only for guardrails meant to inspect user input.
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict to configure it; *prompt* is
+            asked as a yes/no question.  Mutually exclusive with *model*;
+            one of the two is required.
 
     Returns:
         GuardrailMiddleware configured with the specified parameters
@@ -1204,10 +1523,12 @@ def create_guardrail_middleware(
         )
     """
     logger.trace("Creating guardrail middleware", guardrail_name=name)
+    ai_decide_model: AiDecideJudgeModel | None = _resolve_judge(name, model, ai_decide)
     return GuardrailMiddleware(
         name=name,
         model=model,
         prompt=prompt,
+        ai_decide=ai_decide_model,
         num_retries=num_retries,
         fail_on_error=fail_on_error,
         max_context_length=max_context_length,
@@ -1250,6 +1571,7 @@ def create_content_filter_middleware(
 def create_safety_guardrail_middleware(
     safety_model: Optional[str] = None,
     fail_on_error: bool = False,
+    ai_decide: AiDecideArg = None,
 ) -> SafetyGuardrailMiddleware:
     """
     Create a SafetyGuardrailMiddleware instance.
@@ -1261,8 +1583,11 @@ def create_safety_guardrail_middleware(
     Args:
         safety_model: MLflow model string for the safety judge
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``).
-            Defaults to ``"openai:/gpt-4o-mini"`` if not provided.
+            Required unless *ai_decide* is set.
         fail_on_error: If True, block responses when the judge call errors (default: False)
+        ai_decide: Judge safety with Databricks ``ai_decide`` instead of an
+            LLM: ``True`` for defaults, or a dict such as
+            ``{"threshold": 0.7}``.  Mutually exclusive with *safety_model*.
 
     Returns:
         SafetyGuardrailMiddleware configured with the specified model
@@ -1276,14 +1601,16 @@ def create_safety_guardrail_middleware(
     return SafetyGuardrailMiddleware(
         safety_model=safety_model,
         fail_on_error=fail_on_error,
+        ai_decide=ai_decide,
     )
 
 
 def create_veracity_guardrail_middleware(
-    model: str,
+    model: str | None = None,
     num_retries: int = 2,
     fail_on_error: bool = False,
     max_context_length: int = 8000,
+    ai_decide: AiDecideArg = None,
 ) -> VeracityGuardrailMiddleware:
     """
     Create a VeracityGuardrailMiddleware instance.
@@ -1301,6 +1628,10 @@ def create_veracity_guardrail_middleware(
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
         max_context_length: Max chars for extracted tool context (default: 8000)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict such as ``{"threshold": 0.7}``.
+            Faster, but gives no written critique for retries.  Mutually
+            exclusive with *model*; one of the two is required.
 
     Returns:
         VeracityGuardrailMiddleware configured with the specified parameters
@@ -1317,13 +1648,15 @@ def create_veracity_guardrail_middleware(
         num_retries=num_retries,
         fail_on_error=fail_on_error,
         max_context_length=max_context_length,
+        ai_decide=ai_decide,
     )
 
 
 def create_relevance_guardrail_middleware(
-    model: str,
+    model: str | None = None,
     num_retries: int = 2,
     fail_on_error: bool = False,
+    ai_decide: AiDecideArg = None,
 ) -> RelevanceGuardrailMiddleware:
     """
     Create a RelevanceGuardrailMiddleware instance.
@@ -1337,6 +1670,10 @@ def create_relevance_guardrail_middleware(
             (e.g. ``"databricks:/databricks-claude-3-7-sonnet"``)
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict such as ``{"threshold": 0.7}``.
+            Faster, but gives no written critique for retries.  Mutually
+            exclusive with *model*; one of the two is required.
 
     Returns:
         RelevanceGuardrailMiddleware configured with the specified parameters
@@ -1351,15 +1688,17 @@ def create_relevance_guardrail_middleware(
         model=model,
         num_retries=num_retries,
         fail_on_error=fail_on_error,
+        ai_decide=ai_decide,
     )
 
 
 def create_tone_guardrail_middleware(
-    model: str,
+    model: str | None = None,
     tone: str = "professional",
     custom_guidelines: str | PromptModel | None = None,
     num_retries: int = 2,
     fail_on_error: bool = False,
+    ai_decide: AiDecideArg = None,
 ) -> ToneGuardrailMiddleware:
     """
     Create a ToneGuardrailMiddleware instance.
@@ -1380,6 +1719,10 @@ def create_tone_guardrail_middleware(
             ``PromptModel`` from the prompt registry.
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict such as ``{"threshold": 0.7}``.
+            Faster, but gives no written critique for retries.  Mutually
+            exclusive with *model*; one of the two is required.
 
     Returns:
         ToneGuardrailMiddleware configured with the specified parameters
@@ -1397,16 +1740,18 @@ def create_tone_guardrail_middleware(
         custom_guidelines=custom_guidelines,
         num_retries=num_retries,
         fail_on_error=fail_on_error,
+        ai_decide=ai_decide,
     )
 
 
 def create_conciseness_guardrail_middleware(
-    model: str,
+    model: str | None = None,
     max_length: int = 3000,
     min_length: int = 20,
     check_verbosity: bool = True,
     num_retries: int = 2,
     fail_on_error: bool = False,
+    ai_decide: AiDecideArg = None,
 ) -> ConcisenessGuardrailMiddleware:
     """
     Create a ConcisenessGuardrailMiddleware instance.
@@ -1423,6 +1768,10 @@ def create_conciseness_guardrail_middleware(
         check_verbosity: Enable LLM verbosity evaluation (default: True)
         num_retries: Maximum retry attempts (default: 2)
         fail_on_error: Block responses on evaluation error (default: False)
+        ai_decide: Judge with Databricks ``ai_decide`` instead of an LLM:
+            ``True`` for defaults, or a dict such as ``{"threshold": 0.7}``.
+            Faster, but gives no written critique for retries.  Mutually
+            exclusive with *model*; one of the two is required.
 
     Returns:
         ConcisenessGuardrailMiddleware configured with the specified parameters
@@ -1448,6 +1797,7 @@ def create_conciseness_guardrail_middleware(
         check_verbosity=check_verbosity,
         num_retries=num_retries,
         fail_on_error=fail_on_error,
+        ai_decide=ai_decide,
     )
 
 

@@ -208,6 +208,7 @@ class TestCreateGuidelinesScorers:
         class MockGuideline:
             name = "test_guideline"
             guidelines = ["Be helpful", "Be accurate"]
+            ai_decide = None
 
         scorers = create_guidelines_scorers([MockGuideline()])
 
@@ -222,6 +223,7 @@ class TestCreateGuidelinesScorers:
         class MockGuideline:
             name = "quality"
             guidelines = ["Be concise"]
+            ai_decide = None
 
         scorers = create_guidelines_scorers(
             [MockGuideline()],
@@ -238,10 +240,12 @@ class TestCreateGuidelinesScorers:
         class G1:
             name = "g1"
             guidelines = ["Rule 1"]
+            ai_decide = None
 
         class G2:
             name = "g2"
             guidelines = ["Rule 2"]
+            ai_decide = None
 
         scorers = create_guidelines_scorers([G1(), G2()])
 
@@ -264,6 +268,7 @@ class TestBuildScorers:
 
         class MockEvalConfig:
             guidelines = []
+            ai_decide = None
 
         scorers = build_scorers(MockEvalConfig())
 
@@ -281,9 +286,11 @@ class TestBuildScorers:
         class MockGuideline:
             name = "my_guideline"
             guidelines = ["Be polite"]
+            ai_decide = None
 
         class MockEvalConfig:
             guidelines = [MockGuideline()]
+            ai_decide = None
 
         scorers = build_scorers(MockEvalConfig())
 
@@ -298,6 +305,7 @@ class TestBuildScorers:
 
         class MockEvalConfig:
             guidelines = []
+            ai_decide = None
 
         scorers = build_scorers(MockEvalConfig())
 

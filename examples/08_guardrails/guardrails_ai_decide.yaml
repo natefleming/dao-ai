@@ -1,0 +1,329 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog (registered model + trace tables)
+    default: dao_ai
+  llm:
+    description: Chat serving endpoint used by the agent
+    default: databricks-gpt-5-4-mini
+  warehouse_id:
+    description: SQL warehouse used by trace_location to export MLflow traces to UC
+    default: d58e5fb998498840
+
+# =============================================================================
+# ai_decide (jev-style) Guardrails Example
+# =============================================================================
+# MLflow 3.17 introduced "Jev decision" judges: structured yes/no and
+# categorical verdicts with calibrated probabilities instead of a free-text
+# critique. Databricks serves the same decision model on-platform as the
+# `ai_decide` AI function, and DAO AI can use it as a guardrail judge:
+#
+#   ai_decide:
+#     threshold: 0.5      # pass when the pass probability >= threshold
+#
+# Decisions go to POST /api/2.0/ai-functions/ai-decide as the agent's runtime
+# identity -- no warehouse or extra credentials needed.
+#
+# Compared to an LLM judge (`model:` + long rubric prompt), an ai_decide
+# guardrail:
+#   - asks ONE yes/no question: "does it pass?" (default) or "is the violation
+#     present?" (`pass_if: no`, usually more reliable)
+#   - returns a probability, so strictness is tuned with `threshold`
+#   - is fast (sub-second over REST), so several guardrails per turn stay cheap
+#   - returns no rationale. On failure DAO AI feeds `criteria.fail_when` (or
+#     the question) back to the model as the retry instruction.
+#
+# Two ways to use it, both shown below:
+#   1. `guardrails:`  -- your own question (`prompt`) + `ai_decide` + `criteria`
+#   2. `middleware:`  -- the built-in veracity / relevance / tone / conciseness /
+#                        safety guardrails with `ai_decide:` instead of `model:`
+#
+# ai_decide is opt-in: `ai_decide: true` for default settings, or
+# `ai_decide: {threshold: ...}` to configure it. Without it a guardrail needs a
+# `model:` (LLM judge). The LLM judge explains each failure and that critique
+# is fed back to the model on a retry; ai_decide returns only a probability.
+# =============================================================================
+
+schemas:
+  dao_ai_schema: &dao_ai_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+      max_tokens: 2048
+
+# =============================================================================
+# TOOLS
+# =============================================================================
+# The time tool gives the veracity guardrail tool context to ground against.
+
+tools:
+  current_time_tool: &current_time_tool
+    name: current_time
+    function:
+      type: python
+      name: dao_ai.tools.current_time_tool
+
+  greeting_tool: &greeting_tool
+    name: greeting
+    function:
+      type: python
+      name: dao_ai.tools.say_hello_tool
+
+# =============================================================================
+# CUSTOM ai_decide GUARDRAILS
+# =============================================================================
+# `prompt` is a yes/no question. By default "yes" passes; with `pass_if: no`
+# the question asks whether a violation is present and "no" passes.
+# {{ inputs }} holds the user query and tool context; {{ outputs }} holds the
+# agent response. `criteria.fail_when` is what the model is told on a retry.
+
+guardrails:
+  # Demonstrates the retry loop: ask "Is a Ryobi or DeWalt cordless drill
+  # better for occasional home use, and where can I buy one?" The first draft
+  # usually names a competing retailer; the retry answers without it.
+  no_competitors_guardrail: &no_competitors_guardrail
+    name: no_competitor_mentions
+    # Asked as "is the violation present?" with pass_if: no -- ai_decide detects
+    # presence far more reliably than it confirms absence.
+    prompt: >-
+      Does {{ outputs }} name a store or retailer other than Brickhouse
+      Hardware, such as Home Depot, Lowe's, Menards, Ace Hardware, or Amazon?
+      Product brands like DeWalt or Ryobi are not stores.
+    pass_if: "no"
+    ai_decide:
+      threshold: 0.7
+    criteria:
+      pass_when: The response does not name any competing retailer.
+      fail_when: >-
+        The response names a competing retailer. Rewrite it without naming any
+        other retailer; describe only Brickhouse Hardware's own products,
+        prices, and policies.
+    num_retries: 2
+
+# =============================================================================
+# BUILT-IN GUARDRAILS WITH ai_decide (via middleware)
+# =============================================================================
+# The same factories as guardrails_basic.yaml; `ai_decide:` replaces `model:`.
+# Each uses a built-in yes/no question tuned for ai_decide.
+
+middleware:
+  veracity_middleware: &veracity_middleware
+    name: dao_ai.middleware.create_veracity_guardrail_middleware
+    args:
+      ai_decide:
+        threshold: 0.5
+      num_retries: 2
+
+  relevance_middleware: &relevance_middleware
+    name: dao_ai.middleware.create_relevance_guardrail_middleware
+    args:
+      ai_decide: true
+      num_retries: 2
+
+  tone_middleware: &tone_middleware
+    name: dao_ai.middleware.create_tone_guardrail_middleware
+    args:
+      ai_decide: true
+      tone: professional
+      num_retries: 2
+
+  conciseness_middleware: &conciseness_middleware
+    name: dao_ai.middleware.create_conciseness_guardrail_middleware
+    args:
+      ai_decide: true
+      max_length: 2000
+      min_length: 10
+      # ai_decide judges verbosity strictly: typical chat answers that end with
+      # "If you want, I can..." offers score as padded. Keep the deterministic
+      # length check and enable this only for agents meant to be terse.
+      check_verbosity: false
+      num_retries: 2
+
+  safety_middleware: &safety_middleware
+    name: dao_ai.middleware.create_safety_guardrail_middleware
+    args:
+      ai_decide: true
+
+# =============================================================================
+# AGENTS
+# =============================================================================
+
+agents:
+  store_assistant: &store_assistant
+    name: store_assistant
+    description: "Hardware store assistant protected by ai_decide guardrails"
+    model: *default_llm
+    tools:
+    - *current_time_tool
+    - *greeting_tool
+    guardrails:
+    - *no_competitors_guardrail
+    middleware:
+    - *veracity_middleware
+    - *relevance_middleware
+    - *tone_middleware
+    - *conciseness_middleware
+    - *safety_middleware
+    prompt: |
+      You are the customer assistant for Brickhouse Hardware, a neighborhood
+      hardware store.
+
+      - Help customers with tools, home improvement projects, and store questions.
+      - Use the current_time tool for any question about the date or time.
+      - Be professional, friendly, and concise.
+      - Never invent store data you were not given.
+
+# =============================================================================
+# APPLICATION
+# =============================================================================
+
+app:
+  name: guardrails_ai_decide_dao
+  description: "Hardware store assistant with Databricks ai_decide guardrails"
+  log_level: DEBUG
+
+  registered_model:
+    schema: *dao_ai_schema
+    name: guardrails_ai_decide_dao
+  endpoint_name: guardrails_ai_decide_dao
+
+  # Runtime identity for the deployed agent. It writes Model Serving traces to
+  # UC and is the identity ai_decide REST calls run as.
+  service_principal:
+    client_id:
+      scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    client_secret:
+      scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+  # A dedicated experiment (not the per-deployer default) so Model Serving and
+  # Apps both link it to the UC trace_location below.
+  experiment:
+    name: /Shared/guardrails_ai_decide_dao
+
+  # Apps can't reach the control-plane trace store, so export traces to UC.
+  # Do NOT set table_prefix (MLflow's search_traces expects the default names).
+  trace_location:
+    schema: *dao_ai_schema
+    warehouse: ${var.warehouse_id}
+
+  permissions:
+  - principals: [users]
+    entitlements:
+    - CAN_QUERY
+
+  agents:
+  - *store_assistant
+
+  input_example:
+    input:
+    - role: user
+      content: What time is it?
+    custom_inputs:
+      configurable:
+        user_id: test_user
+
+# =============================================================================
+# EVALUATION (ai_decide judges)
+# =============================================================================
+# With `ai_decide:` set, the built-in safety / completeness / relevance_to_query
+# checks and every `decisions:` question are answered in ONE ai_decide call per
+# row (metric names match the MLflow built-ins). Without it, evaluation uses the
+# MLflow LLM judges, which record a rationale per row. A guideline set with its
+# own `ai_decide:` is asked as one yes/no question instead of the Guidelines
+# judge. tool_call_efficiency needs the trace, so it always uses the LLM judge.
+#
+# Note: ai_decide scorers can't be registered for production monitoring
+# (MLflow only registers built-in or @scorer scorers); they're skipped there.
+
+# The evaluation pipeline generates questions only from vector store
+# documents, and this agent has none, so the questions are seeded as a dataset
+# (ingest-and-transform loads it; generate-evaluation-data then skips). Each
+# row targets a guardrail path -- see data/guardrails_ai_decide_evaluation_data.sql.
+datasets:
+- table: &evaluation_table
+    schema: *dao_ai_schema
+    name: guardrails_ai_decide_evaluation
+  ddl: data/guardrails_ai_decide_evaluation.sql
+  data: data/guardrails_ai_decide_evaluation_data.sql
+  format: sql
+
+evaluation:
+  model: *default_llm
+  table: *evaluation_table
+  num_evals: 10
+  agent_description: >-
+    Customer assistant for Brickhouse Hardware, a neighborhood hardware store.
+    Helps with tools, home improvement projects, and store questions.
+  question_guidelines: |
+    - Questions a homeowner would ask a hardware store associate
+    - Include tool recommendations, project help, and store policy questions
+  ai_decide: true
+  guidelines:
+  - name: store_policy
+    guidelines:
+    - Recommend Brickhouse Hardware's own products, staff, or services
+    - Stay on the topic of hardware, tools, and home improvement
+    ai_decide: true
+  decisions:
+  - name: intent
+    type: choice
+    instructions: What is the customer in {{ inputs }} asking for?
+    choices:
+      product_advice: Help choosing a tool or product
+      project_help: How to do a home improvement task
+      store_info: Hours, location, returns, or other store policies
+      other: null
+  - name: helpfulness
+    type: score
+    instructions: How helpful is {{ outputs }} for the request in {{ inputs }}?
+    levels:
+    - Not helpful
+    - Somewhat helpful
+    - Very helpful
+  - name: names_competitor
+    instructions: >-
+      Does {{ outputs }} name a store or retailer other than Brickhouse
+      Hardware? Product brands like DeWalt or Ryobi are not stores.
+    pass_if: "no"
+
+# =============================================================================
+# USAGE
+# =============================================================================
+#
+#   dao-ai validate -c examples/08_guardrails/guardrails_ai_decide.yaml
+#   dao-ai chat -c examples/08_guardrails/guardrails_ai_decide.yaml --log-level DEBUG
+#
+# Try:
+#   "What time is it?"
+#       -> passes every guardrail (veracity grounds against the time tool)
+#   "Is a Ryobi or DeWalt cordless drill better for occasional home use, and
+#    where can I buy one?"
+#       -> no_competitor_mentions fails, the model retries with the fail_when
+#          feedback, and the corrected answer passes
+#
+# Retries are bounded per user turn: each guardrail retries at most
+# num_retries - 1 times, and a guardrail that runs out of retries ends the turn
+# with a "Quality Check Failed" notice. Guardrails whose criteria conflict
+# (e.g. a question that explicitly asks you to name a competitor) end that way.
+#
+# DEBUG logs show each decision:
+#   ai_decide judged scorer=no_competitor_mentions latency_ms=...
+#     results={'no_competitor_mentions': False} probabilities={...: '0.03'}
+#
+# Each decision is also an `ai_decide:<guardrail>` span (EVALUATOR) in the
+# MLflow trace, with the probability, threshold, and latency.
+# =============================================================================
