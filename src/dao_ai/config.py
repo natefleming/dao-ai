@@ -11084,6 +11084,17 @@ class AppModel(BaseModel):
         "container's Python be pinned independently of the environment running the "
         "deploy (a local machine, CI, or a job may be on a different Python version).",
     )
+    express_deployment: Optional[bool] = Field(
+        default=True,
+        description="Register the Model Serving model with an express-deployment "
+        "environment pack (``mlflow.register_model(env_pack=...)``) so the endpoint "
+        "skips the container image build. Applies only when registration runs on "
+        "x86 Databricks serverless compute; anywhere else (a local machine, ARM "
+        "serverless jobs) registration silently falls back to the standard build. "
+        "When it applies, the serving environment is the registering serverless "
+        "environment, so ``python_version`` is ignored. Set false to always use "
+        "the standard container build. Model Serving only.",
+    )
     trace_location: Optional[TraceLocationModel] = Field(
         default=None,
         description="Unity Catalog location for storing MLflow traces in OTEL-format Delta tables. "
