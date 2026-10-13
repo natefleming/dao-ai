@@ -16,6 +16,9 @@ which path was taken:
 | Serverless job on ARM (`agent up`, `workflow up` → `07_deploy_agent`) | standard build | `Express deployment skipped: serverless compute is ARM ...` |
 | Serverless on x86 | express | `Express deployment enabled` |
 | `app.express_deployment: false` | standard build | `Express deployment disabled` |
+| MLflow < 3.12 (or without `mlflow.utils.env_pack`) | standard build | `Express deployment skipped: needs mlflow >= 3.12` |
+
+`workflow up` has no `--direct` mode, and the CLI rejects the flag.
 
 ## Why ARM matters
 
@@ -45,6 +48,30 @@ x86. Otherwise it uses the standard container build.
 - Custom code (`src/`, `app.code_paths`), skills and `pip_requirements` are logged
   exactly as before.
 
+### Requirement handling
+
+The packed environment *is* the running environment, so before `log_model` (which
+imports the model to validate it) dao-ai makes sure that environment satisfies the
+model's pip requirements:
+
+- **Missing requirements are installed** with pip, constrained to every version
+  already installed (`--constraint`). pip can only add packages. It can never change
+  one the deploy process has already imported. If a requirement would need a change,
+  pip fails and the deploy falls back to the standard build.
+- **Extras count.** `pkg[extra]==X` is unsatisfied when pkg X is installed but a
+  dependency that extra adds is not (nested extras such as `dao-ai[all]` included).
+- **Direct-URL pins** (`pkg @ https://...`) are always installed, because installed
+  metadata cannot prove where a package came from.
+- **Markers** that mention `extra` are evaluated as not requested instead of failing.
+- **The dev wheel** (`code/<wheel>`) must be the exact dao-ai build installed in the
+  running environment. Otherwise the endpoint would quietly serve different code, so
+  dao-ai falls back.
+- **Packing failures fall back.** If `register_model` fails while packing (runtime
+  mismatch, upload error, ...), dao-ai registers again without `env_pack`. MLflow
+  packs before it creates the version, so nothing is left behind.
+- `app.python_version` triggers a warning only when the config sets it explicitly; the
+  `"3.12"` default does not.
+
 ## Validation status (2026-10-12, AWS workspace)
 
 Fixtures are in `tests/config/express/`. Each endpoint was checked with tool calls that
@@ -60,21 +87,12 @@ report where the code was loaded from and which libraries imported.
 
 Notes:
 - Express registration (log, register, pack the ~519 MB env and stage it) took 40s.
-- Before **logging** the model, dao-ai checks that the running environment satisfies
-  the model's pip requirements and installs any that are missing
-  (`_prepare_express_env`). If that install fails, it falls back to the standard
-  container build.
-  - The check runs before `log_model`, not just before the pack, because `log_model`
-    imports the model to validate it. A tool module that imports a pip requirement at
-    load time fails there otherwise; this was hit live and fixed.
-  - This matters wherever dao-ai is not running from a bundle job, for example
-    `07_deploy_agent.py` run by hand. That notebook only installs `dao_ai_dep`.
-  - The bundle job already has every requirement installed through its environment
-    spec, so nothing is installed there.
+- Requirement installs before `log_model` (see "Requirement handling") matter wherever
+  dao-ai is not running from a bundle job, for example `07_deploy_agent.py` run by hand,
+  which only installs `dao_ai_dep`. The bundle job already has every requirement.
 - Under express, the served Python is the notebook's (3.12.3), not the conda build's
   (3.12.14).
-- Still pending x86 serverless *jobs*: published-mode express, plus the `workflow up`
-  and `--direct` paths.
+- Not yet validated: express from an x86 serverless *job* (no such job was available).
 
 ## Deep dive: where deploy time goes (2026-10-12)
 
@@ -147,3 +165,41 @@ The same traces show the colocated `src/` tool and the `app.code_paths` factory 
 - under `/databricks/model/code/...` on Python 3.12.3 for express.
 
 Run it: `python tests/scripts/express_spike/validate_traces.py <endpoint>=<experiment_id> ...`.
+
+## CLI matrix and integration tests (2026-10-13)
+
+Each row was deployed with the `express_full` fixture (renamed per row). Each was
+validated from its MLflow trace with `validate_traces.py`: the `fuzzy_product_lookup`
+span's `rapidfuzz`/`humanize` output matched the independent recomputation exactly, and
+the `src/` and `app.code_paths` tools ran.
+
+| Command | Where `create_agent` ran | Path | Packed env | Trace validation |
+|---|---|---|---|---|
+| `dao-ai agent up -m model_serving` | serverless deploy job (ARM) | standard build | no | PASS |
+| `dao-ai agent up -m model_serving --direct` | local machine | standard build | no | PASS |
+| `dao-ai workflow up -m model_serving` | provisioning job, `07_deploy_agent` (ARM) | standard build | no | PASS |
+| `dao-ai workflow up --direct` | not supported by the CLI | | | |
+| Interactive serverless notebook (only dao-ai installed) | notebook (x86) | **express** | yes, no container-build events | PASS |
+
+`agent up --direct` logs the model locally, so the machine running the CLI needs the
+config's `pip_requirements` installed. That was true before express as well. In this run
+they came from `uv run --with humanize --with rapidfuzz`.
+
+**Integration test.** `tests/dao_ai/test_express_deployment_integration.py` is opt-in:
+`DAO_AI_EXPRESS_IT_PROFILE=<profile> pytest tests/dao_ai/test_express_deployment_integration.py`.
+It runs `tests/scripts/express_spike/03_express_scenarios.py` as a serverless job against
+the dev wheel and asserts on the real serverless image (7/7 passed):
+- the constraints file is accepted;
+- a conflicting requirement falls back and leaves the package untouched;
+- `humanize` is added;
+- `uvicorn[standard]` is detected as missing and its extra dependencies (uvloop,
+  httptools, watchfiles) are added without changing uvicorn;
+- URL pins are reported missing;
+- the dev-wheel check works;
+- no installed package changed version or was removed.
+
+**Separate finding (not express-related).** Installing the dao-ai wheel *without* the
+deploy job's dependency pins, then importing `dao_ai.providers.databricks`, aborted the
+interpreter (SIGABRT) on an ARM serverless node. The abort was inside psycopg's libpq
+binary extension. The deploy-job environment pins `psycopg[binary,pool]==3.3.4` and
+imports fine on ARM, and so does the integration test, which uses the same pin.

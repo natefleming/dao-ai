@@ -30,7 +30,9 @@ class Echo(mlflow.pyfunc.PythonModel):
 
 
 mlflow.set_registry_uri("databricks-uc")
-mlflow.set_experiment(f"/Users/{spark.sql('select current_user()').first()[0]}/express_spike_experiment")
+mlflow.set_experiment(
+    f"/Users/{spark.sql('select current_user()').first()[0]}/express_spike_experiment"
+)
 
 with mlflow.start_run(run_name="express_probe"):
     info = mlflow.pyfunc.log_model(

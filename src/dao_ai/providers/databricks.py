@@ -6,6 +6,7 @@ import re
 import shutil
 import subprocess
 import sys
+import tempfile
 import time
 from datetime import timedelta
 from pathlib import Path
@@ -51,8 +52,13 @@ from mlflow.models.model import ModelInfo
 from mlflow.models.resources import (
     DatabricksResource,
 )
-from mlflow.utils.env_pack import EnvPackConfig
 from packaging.requirements import InvalidRequirement, Requirement
+from packaging.utils import (
+    InvalidWheelFilename,
+    canonicalize_name,
+    parse_wheel_filename,
+)
+from packaging.version import Version
 from unitycatalog.ai.core.base import FunctionExecutionResult
 from unitycatalog.ai.core.databricks import DatabricksFunctionClient
 
@@ -98,6 +104,16 @@ from dao_ai.utils import (
     resolve_use_local_source,
 )
 from dao_ai.vector_search import endpoint_exists, index_exists
+
+# Express deployments need MLflow's env_pack (>= 3.12 per the Databricks docs).
+# Guarded so an older MLflow only disables express instead of breaking every
+# deploy mode on import.
+try:
+    from mlflow.utils.env_pack import EnvPackConfig
+except ImportError:  # pragma: no cover - depends on the installed MLflow
+    EnvPackConfig = None
+
+_EXPRESS_MIN_MLFLOW: Final[Version] = Version("3.12")
 
 MAX_NUM_INDEXES: Final[int] = 50
 
@@ -376,6 +392,14 @@ def _express_env_pack(config: AppConfig) -> Optional[EnvPackConfig]:
         logger.info("Express deployment disabled; using the standard container build")
         return None
 
+    if EnvPackConfig is None or Version(mlflow.__version__) < _EXPRESS_MIN_MLFLOW:
+        logger.info(
+            "Express deployment skipped: needs mlflow >= "
+            f"{_EXPRESS_MIN_MLFLOW}; using the standard container build",
+            mlflow_version=mlflow.__version__,
+        )
+        return None
+
     runtime: str = os.environ.get("DATABRICKS_RUNTIME_VERSION", "")
     arch: str = (os.environ.get("DATABRICKS_CPU_ARCH") or platform.machine()).lower()
     if not runtime.startswith("client."):
@@ -394,8 +418,12 @@ def _express_env_pack(config: AppConfig) -> Optional[EnvPackConfig]:
         )
         return None
 
+    # Only an explicit pin is worth a warning: the field defaults to "3.12".
     running_python: str = f"{sys.version_info.major}.{sys.version_info.minor}"
-    if config.app.python_version and config.app.python_version != running_python:
+    if (
+        "python_version" in config.app.model_fields_set
+        and config.app.python_version != running_python
+    ):
         logger.warning(
             "Express deployment serves the registering environment's Python; "
             "app.python_version is ignored",
@@ -407,12 +435,49 @@ def _express_env_pack(config: AppConfig) -> Optional[EnvPackConfig]:
     return EnvPackConfig(name="databricks_model_serving", install_dependencies=False)
 
 
+def _requirement_satisfied(requirement: Requirement, depth: int = 0) -> bool:
+    """Whether the running environment satisfies one parsed requirement.
+
+    Each requested extra counts too: ``pkg[extra]==X`` is unsatisfied when pkg X
+    is installed but a dependency that extra adds is not. Extras that pull in
+    further extras (``dao-ai[all]`` lists ``dao-ai[...]``) are followed a few
+    levels deep, which also stops self-referencing extras from looping.
+    """
+    if requirement.marker and not requirement.marker.evaluate({"extra": ""}):
+        return True
+    if requirement.url:
+        # Installed metadata cannot prove it came from this artifact.
+        return False
+    try:
+        installed: str = importlib.metadata.version(requirement.name)
+    except importlib.metadata.PackageNotFoundError:
+        return False
+    if not requirement.specifier.contains(installed, prereleases=True):
+        return False
+    if depth >= 3:
+        return True
+    for extra_name in requirement.extras:
+        for dep in importlib.metadata.requires(requirement.name) or []:
+            try:
+                dep_req: Requirement = Requirement(dep)
+            except InvalidRequirement:
+                continue
+            # Only the dependencies this extra adds: base dependencies are
+            # already installed with the package itself.
+            if not dep_req.marker or not dep_req.marker.evaluate({"extra": extra_name}):
+                continue
+            dep_req.marker = None
+            if not _requirement_satisfied(dep_req, depth + 1):
+                return False
+    return True
+
+
 def _missing_requirements(requirements: Sequence[str]) -> list[str]:
     """Return the pip requirements the running environment does not satisfy.
 
-    ``code/<wheel>`` entries are skipped: they name the dev wheel the deploy
-    bootstrap already installed. Requirements that cannot be parsed (URLs, local
-    paths) cannot be verified, so they are reported as missing.
+    ``code/<wheel>`` entries (the dev wheel) are checked separately by
+    ``_dev_wheel_mismatches``. Requirements that cannot be parsed (local paths)
+    or that pin an artifact URL cannot be verified, so they count as missing.
     """
     missing: list[str] = []
     for spec in requirements:
@@ -423,16 +488,41 @@ def _missing_requirements(requirements: Sequence[str]) -> list[str]:
         except InvalidRequirement:
             missing.append(spec)
             continue
-        if requirement.marker and not requirement.marker.evaluate():
-            continue
-        try:
-            installed: str = importlib.metadata.version(requirement.name)
-        except importlib.metadata.PackageNotFoundError:
-            missing.append(spec)
-            continue
-        if not requirement.specifier.contains(installed, prereleases=True):
+        if not _requirement_satisfied(requirement):
             missing.append(spec)
     return missing
+
+
+def _dev_wheel_mismatches(requirements: Sequence[str]) -> list[str]:
+    """Return ``code/<wheel>`` entries whose version is not the one installed.
+
+    Express serves the packed environment, so the bundled dev wheel is never
+    installed at serving time: the running environment must already have that
+    exact build, or the endpoint would quietly serve different code.
+    """
+    mismatched: list[str] = []
+    for spec in requirements:
+        if not spec.startswith("code/"):
+            continue
+        try:
+            name, version, _, _ = parse_wheel_filename(Path(spec).name)
+            installed: Version = Version(importlib.metadata.version(name))
+        except (InvalidWheelFilename, importlib.metadata.PackageNotFoundError):
+            mismatched.append(spec)
+            continue
+        if installed != version:
+            mismatched.append(spec)
+    return mismatched
+
+
+def _installed_constraints() -> list[str]:
+    """``name==version`` for every distribution in the running environment."""
+    pins: dict[str, str] = {}
+    for dist in importlib.metadata.distributions():
+        name: str | None = dist.metadata["Name"]
+        if name:
+            pins.setdefault(canonicalize_name(name), f"{name}=={dist.version}")
+    return sorted(pins.values())
 
 
 def _prepare_express_env(
@@ -443,9 +533,20 @@ def _prepare_express_env(
     Express packs the running environment as-is (``install_dependencies`` is
     False), so a requirement it lacks would be missing at serving time. A bundle
     job installs them through its environment spec, but a notebook run of the
-    deploy only installs dao-ai. Install whatever is missing; if that fails, fall
-    back to the standard container build rather than pack an incomplete env.
+    deploy only installs dao-ai. Install whatever is missing, constrained to the
+    versions already installed: pip may only add packages, never change one this
+    process has imported. Any conflict, failure, or dev-wheel mismatch falls back
+    to the standard container build rather than packing an incomplete env.
     """
+    mismatched: list[str] = _dev_wheel_mismatches(pip_requirements)
+    if mismatched:
+        logger.warning(
+            "Express deployment skipped: the running environment does not have the "
+            "bundled dev wheel installed; using the standard container build",
+            wheels=mismatched,
+        )
+        return None
+
     missing: list[str] = _missing_requirements(pip_requirements)
     if not missing:
         return env_pack
@@ -454,22 +555,35 @@ def _prepare_express_env(
         "Installing model requirements missing from the express environment",
         requirements=missing,
     )
-    try:
-        subprocess.run(
-            [sys.executable, "-m", "pip", "install", "--quiet", *missing],
-            check=True,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            text=True,
-        )
-    except subprocess.CalledProcessError as e:
-        logger.warning(
-            "Express deployment skipped: could not install model requirements; "
-            "using the standard container build",
-            requirements=missing,
-            output=e.stdout,
-        )
-        return None
+    with tempfile.NamedTemporaryFile("w", suffix=".txt") as constraints:
+        constraints.write("\n".join(_installed_constraints()))
+        constraints.flush()
+        try:
+            subprocess.run(
+                [
+                    sys.executable,
+                    "-m",
+                    "pip",
+                    "install",
+                    "--quiet",
+                    "--constraint",
+                    constraints.name,
+                    *missing,
+                ],
+                check=True,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.STDOUT,
+                text=True,
+            )
+        except subprocess.CalledProcessError as e:
+            logger.warning(
+                "Express deployment skipped: could not install model requirements "
+                "without changing installed packages; using the standard container "
+                "build",
+                requirements=missing,
+                output=e.stdout,
+            )
+            return None
     # The packages land in this running process, which imports them next (the
     # ``log_model`` validation load); drop the import system's stale path caches.
     importlib.invalidate_caches()
@@ -1890,11 +2004,28 @@ class DatabricksProvider(ServiceProvider):
 
         registered_model_name: str = config.app.registered_model.full_name
 
-        model_version: ModelVersion = mlflow.register_model(
-            name=registered_model_name,
-            model_uri=logged_agent_info.model_uri,
-            env_pack=env_pack,
-        )
+        # env_pack is passed only when express applies, so an MLflow without the
+        # parameter still registers. MLflow packs before it creates the version,
+        # so a packing failure (runtime mismatch, upload error, ...) leaves nothing
+        # behind and the standard registration can simply be retried.
+        model_version: ModelVersion
+        try:
+            model_version = mlflow.register_model(
+                name=registered_model_name,
+                model_uri=logged_agent_info.model_uri,
+                **({"env_pack": env_pack} if env_pack else {}),
+            )
+        except Exception as e:
+            if not env_pack:
+                raise
+            logger.warning(
+                "Express deployment skipped: packing the environment failed; "
+                "registering for the standard container build",
+                error=str(e),
+            )
+            model_version = mlflow.register_model(
+                name=registered_model_name, model_uri=logged_agent_info.model_uri
+            )
         logger.success(
             "Model registered",
             model_name=registered_model_name,

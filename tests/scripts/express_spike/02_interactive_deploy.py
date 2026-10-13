@@ -5,7 +5,7 @@
 # serverless job tasks ran on ARM, so this is the path where env_pack applies.
 # Installs the same packages the bundle's job environment does, so the packed env
 # carries dao-ai, its pins, and app.pip_requirements.
-# MAGIC %pip install --quiet '../dist/dao_ai-0.2.22+dev1791821658-py3-none-any.whl' 'databricks-agents==1.11.0' 'databricks-langchain[memory]==0.20.0' 'databricks-mcp==0.9.0' 'databricks-sdk[openai]==0.146.0' 'langchain==1.3.14' 'langchain-mcp-adapters==0.3.0' 'langchain-openai==1.3.5' 'langgraph==1.2.9' 'langgraph-checkpoint-postgres==3.0.5' 'langgraph-prebuilt==1.1.0' 'loguru==0.7.3' 'mcp==1.28.1' 'mlflow==3.14.0' 'nest-asyncio==1.6.0' 'psycopg[binary,pool]==3.3.4' 'pydantic==2.13.4' 'pyyaml==6.0.3' 'unitycatalog-ai[databricks]==0.3.2' 'unitycatalog-langchain[databricks]==0.3.0' 'deepagents==0.6.12' 'humanize>=4.0' 'rapidfuzz>=3.0' 
+# MAGIC %pip install --quiet '../dist/dao_ai-0.2.22+dev1791821658-py3-none-any.whl' 'databricks-agents==1.11.0' 'databricks-langchain[memory]==0.20.0' 'databricks-mcp==0.9.0' 'databricks-sdk[openai]==0.146.0' 'langchain==1.3.14' 'langchain-mcp-adapters==0.3.0' 'langchain-openai==1.3.5' 'langgraph==1.2.9' 'langgraph-checkpoint-postgres==3.0.5' 'langgraph-prebuilt==1.1.0' 'loguru==0.7.3' 'mcp==1.28.1' 'mlflow==3.14.0' 'nest-asyncio==1.6.0' 'psycopg[binary,pool]==3.3.4' 'pydantic==2.13.4' 'pyyaml==6.0.3' 'unitycatalog-ai[databricks]==0.3.2' 'unitycatalog-langchain[databricks]==0.3.0' 'deepagents==0.6.12' 'humanize>=4.0' 'rapidfuzz>=3.0'
 # MAGIC %restart_python
 
 # COMMAND ----------

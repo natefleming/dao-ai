@@ -12,7 +12,9 @@ from databricks.sdk import WorkspaceClient
 endpoint: str = sys.argv[1]
 since: str = sys.argv[2] if len(sys.argv) > 2 else "00:00:00"
 w = WorkspaceClient()
-events = w.api_client.do("GET", f"/api/2.0/serving-endpoints/{endpoint}/events")["events"]
+events = w.api_client.do("GET", f"/api/2.0/serving-endpoints/{endpoint}/events")[
+    "events"
+]
 for ev in sorted(events, key=lambda e: int(e["timestamp"])):
     ts = datetime.datetime.fromtimestamp(int(ev["timestamp"]) / 1000, datetime.UTC)
     if ts.strftime("%H:%M:%S") < since:
