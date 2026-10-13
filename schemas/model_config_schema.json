@@ -1912,6 +1912,19 @@
           "description": "Python version for Model Serving deployment. Defaults to 3.12 which is supported by Databricks Model Serving. This lets the serving container's Python be pinned independently of the environment running the deploy (a local machine, CI, or a job may be on a different Python version).",
           "title": "Python Version"
         },
+        "express_deployment": {
+          "anyOf": [
+            {
+              "type": "boolean"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": true,
+          "description": "Register the Model Serving model with an express-deployment environment pack (``mlflow.register_model(env_pack=...)``) so the endpoint skips the container image build. Applies only when registration runs on x86 Databricks serverless compute; anywhere else (a local machine, ARM serverless jobs) registration silently falls back to the standard build. When it applies, the serving environment is the registering serverless environment, so ``python_version`` is ignored. Set false to always use the standard container build. Model Serving only.",
+          "title": "Express Deployment"
+        },
         "trace_location": {
           "anyOf": [
             {

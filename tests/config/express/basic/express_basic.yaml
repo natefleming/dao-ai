@@ -1,0 +1,43 @@
+# yaml-language-server: $schema=../../../../schemas/model_config_schema.json
+
+# Express-deployment matrix cells A/B: an LLM-only agent with no custom code and
+# no extra pip requirements. Deployed once published (A) and once development
+# (B, local wheel shipped as ``code/<wheel>``).
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-claude-sonnet-4-5
+
+schemas:
+  express_schema: &express_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+
+agents:
+  assistant: &assistant
+    name: assistant
+    model: *default_llm
+    prompt: |
+      You are a concise assistant. Answer in one sentence.
+
+app:
+  name: express_basic
+  log_level: INFO
+  registered_model:
+    name: express_basic
+    schema: *express_schema
+  endpoint_name: express_basic_dao
+  agents:
+  - *assistant
