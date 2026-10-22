@@ -23,6 +23,7 @@ from langgraph.types import Command
 from loguru import logger
 
 from dao_ai.config import AuditModel, BaseFunctionModel, ToolModel
+from dao_ai.state import SessionState
 
 if TYPE_CHECKING:
     from langchain_core.language_models import LanguageModelLike
@@ -178,6 +179,17 @@ async def decide_graph_turn(
     graph_input: dict[str, Any] = {"messages": messages}
     if "genie_conversation_ids" in session_input:
         graph_input["genie_conversation_ids"] = session_input["genie_conversation_ids"]
+        # The Genie tools read session.genie.spaces, so seed it too: a client
+        # that sends back custom_outputs.session (no checkpointer) continues
+        # its Genie conversations.
+        session = SessionState()
+        for space_id, conversation_id in session_input[
+            "genie_conversation_ids"
+        ].items():
+            session.genie.update_space(
+                space_id=space_id, conversation_id=conversation_id
+            )
+        graph_input["session"] = session
     logger.trace(
         "HITL: fresh graph invocation",
         message_count=len(messages),

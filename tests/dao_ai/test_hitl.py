@@ -86,10 +86,14 @@ def test_decide_graph_turn_carries_genie_session_ids():
         )
     )
 
+    session = result.graph_input.pop("session")
     assert result.graph_input == {
         "messages": [{"role": "user", "content": "hi"}],
         "genie_conversation_ids": {"space_1": "conv_1"},
     }
+    # The Genie tools read session.genie.spaces, so a pasted-back session
+    # continues its conversations without a checkpointer.
+    assert session.genie.get_conversation_id("space_1") == "conv_1"
 
 
 @pytest.mark.unit

@@ -119,11 +119,12 @@ def create_genie_one_tool(function: McpFunctionModel, mcp_tool: Tool) -> Runnabl
         stored_conversation_id: str | None = session.genie.get_conversation_id(
             GENIE_ONE_SESSION_KEY
         )
-        if (
+        injected: bool = bool(
             accepts_conversation_id
             and not kwargs.get("conversation_id")
             and stored_conversation_id
-        ):
+        )
+        if injected:
             kwargs["conversation_id"] = stored_conversation_id
             logger.debug(
                 "Continuing Genie One conversation from session",
@@ -142,17 +143,37 @@ def create_genie_one_tool(function: McpFunctionModel, mcp_tool: Tool) -> Runnabl
                     _resolve_meta(function.meta),
                 )
 
-        result: CallToolResult = await AsyncRetrying(
+        retrying = AsyncRetrying(
             retry=retry_if_exception(_is_transient_http_error),
             wait=wait_exponential(multiplier=1, min=1, max=10),
             stop=stop_after_attempt(max_attempts),
             reraise=True,
-        )(_call)
+        )
+        try:
+            result: CallToolResult = await retrying(_call)
+            # A stored conversation can go stale (expired, deleted, another
+            # identity). Rather than failing every later ask on the thread,
+            # drop it and start a new Genie conversation once.
+            if injected and mcp_tool.name == GENIE_ASK_TOOL and result.isError:
+                logger.warning(
+                    "Stored Genie One conversation rejected; starting a new one",
+                    conversation_id=stored_conversation_id,
+                )
+                kwargs.pop("conversation_id")
+                result = await retrying(_call)
+        except Exception as e:
+            logger.error("MCP tool failed", tool_name=mcp_tool.name, error=str(e))
+            raise
 
+        text: str = _extract_text_content(result)
+        if result.isError:
+            logger.warning("MCP tool returned an error", tool_name=mcp_tool.name)
         update: dict[str, Any] = {
             "messages": [
                 ToolMessage(
-                    _extract_text_content(result), tool_call_id=runtime.tool_call_id
+                    text,
+                    tool_call_id=runtime.tool_call_id,
+                    status="error" if result.isError else "success",
                 )
             ]
         }

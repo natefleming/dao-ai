@@ -185,6 +185,45 @@ class TestGenieOneConversationContinuity:
             _run(GENIE_ASK, {"messages": []}, call, question="q")
         assert call.await_count == 1
 
+    def test_stale_stored_conversation_starts_new_one(self) -> None:
+        session = SessionState()
+        session.genie.update_space(
+            space_id=GENIE_ONE_SESSION_KEY, conversation_id="stale"
+        )
+        rejected = _result({"error": "conversation not found"})
+        rejected.isError = True
+        fresh = _result({"conversation_id": "c2", "response_id": "r1"})
+        outcomes = iter([rejected, fresh])
+        sent: list[dict[str, Any]] = []
+
+        async def _record(_fn, _session, _name, args, _meta) -> CallToolResult:
+            sent.append(dict(args))
+            return next(outcomes)
+
+        command = _run(
+            GENIE_ASK,
+            {"messages": [], "session": session},
+            AsyncMock(side_effect=_record),
+            question="q",
+        )
+        assert [a.get("conversation_id") for a in sent] == ["stale", None]
+        assert (
+            command.update["session"]
+            .genie.spaces[GENIE_ONE_SESSION_KEY]
+            .conversation_id
+            == "c2"
+        )
+
+    def test_explicit_conversation_error_is_not_retried(self) -> None:
+        rejected = _result({"error": "conversation not found"})
+        rejected.isError = True
+        call = AsyncMock(return_value=rejected)
+        command = _run(
+            GENIE_ASK, {"messages": []}, call, question="q", conversation_id="c9"
+        )
+        assert call.await_count == 1
+        assert command.update["messages"][0].status == "error"
+
     def test_error_result_does_not_persist(self) -> None:
         result = _result({"conversation_id": "c1"})
         result.isError = True
