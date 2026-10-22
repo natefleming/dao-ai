@@ -92,6 +92,22 @@ class TestGenieConversationIdsInOutputs:
             "space_456": "conv_def",
         }
 
+    def test_get_genie_conversation_ids_from_session_state(self):
+        """Conversations the Genie tools write to state['session'] surface too."""
+        from dao_ai.state import SessionState
+
+        session = SessionState()
+        session.genie.update_space(space_id="genie_one", conversation_id="conv_one")
+        mock_state_snapshot = MagicMock()
+        mock_state_snapshot.values = {
+            "genie_conversation_ids": {"space_123": "conv_abc"},
+            "session": session,
+        }
+
+        result = get_genie_conversation_ids_from_state(mock_state_snapshot)
+
+        assert result == {"space_123": "conv_abc", "genie_one": "conv_one"}
+
     def test_get_state_snapshot_no_checkpointer(self):
         """Test when graph has no checkpointer."""
         mock_graph = MagicMock(spec=CompiledStateGraph)

@@ -134,11 +134,11 @@ tools:
       workspace_host: *workspace_host
 
   genie_all_mcp: &genie_all_mcp
-                                                 # Workspace-wide Genie MCP tool (all spaces)
+                                                 # Genie One MCP tool (workspace-wide, no space_id)
     name: genie_all_mcp
     function:
       type: mcp                                  # MCP function type
-      genie: true                                # Workspace-wide managed Genie MCP (no space_id)
+      genie: true                                # Genie One MCP: system.ai.genie_one_mcp via Unity AI Gateway
       client_id: *client_id
       client_secret: *client_secret
       workspace_host: *workspace_host
@@ -160,7 +160,8 @@ agents:
     prompt: |                                    # System prompt defining agent behavior
       You are a multi-purpose agent that can perform vector search, execute SQL queries via DBSQL,
       call Unity Catalog functions, interact with a specific Genie room, and query across all Genie
-      spaces in the workspace via the workspace-wide Genie MCP server. Use the tools provided to
+      spaces in the workspace via Genie One MCP (genie_ask, then genie_poll_response until the
+      status is completed). Use the tools provided to
       answer questions and perform tasks. You may need to use the tools in combination to achieve
       complex tasks.
 

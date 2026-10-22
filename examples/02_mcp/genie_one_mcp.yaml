@@ -1,0 +1,107 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+#
+# Genie One MCP agent with persistent conversation memory.
+#
+#   - `genie: true` — Genie One MCP (system.ai.genie_one_mcp on the Unity AI
+#     Gateway), called on behalf of the user (OBO, `ai-gateway` scope).
+#   - Lakebase checkpointer — thread state (including the Genie conversation_id
+#     in session.genie.spaces.genie_one) persists across requests and serving
+#     replicas, so a follow-up sent with the same thread_id continues the same
+#     Genie conversation on Databricks Apps AND Model Serving.
+#
+# Lakebase is reached as a service principal whose credentials live in the
+# `retail_consumer_goods` secret scope. They are also forwarded as environment
+# variables because a Model Serving endpoint has no identity of its own to read
+# a secret scope with.
+#
+# Deploy:
+#   dao-ai agent up -c genie_one_mcp.yaml -p <profile>                    # Apps
+#   dao-ai agent up -c genie_one_mcp.yaml -p <profile> -m model_serving   # Model Serving
+
+# =============================================================================
+# PARAMETERS
+# =============================================================================
+parameters:
+  catalog:
+    description: Unity Catalog catalog for MLflow model registration
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: dao_ai_genie_one
+  llm:
+    description: Chat/reasoning serving endpoint for the agent.
+    default: databricks-claude-sonnet-5
+  lakebase_project:
+    description: Lakebase (Postgres) project backing the checkpointer.
+    default: retail-consumer-goods
+
+# Service principal credentials for Lakebase. Scope-first so the deploy emits a
+# secret reference rather than a plaintext value.
+variables:
+  client_id: &client_id
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_ID
+    - env: RETAIL_AI_DATABRICKS_CLIENT_ID
+  client_secret: &client_secret
+    options:
+    - scope: retail_consumer_goods
+      secret: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+    - env: RETAIL_AI_DATABRICKS_CLIENT_SECRET
+
+schemas:
+  registry_schema: &registry_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+  databases:
+    memory_db: &memory_db
+      project: ${var.lakebase_project}
+      description: Conversation checkpoints for the Genie One agent
+      client_id: *client_id
+      client_secret: *client_secret
+
+memory: &memory
+  checkpointer:
+    name: genie_one_checkpointer
+    database: *memory_db
+
+tools:
+  genie_one: &genie_one
+    name: genie_one
+    function:
+      type: mcp
+      genie: true                         # system.ai.genie_one_mcp via Unity AI Gateway
+      on_behalf_of_user: true             # answer as the calling user (ai-gateway scope)
+
+agents:
+  genie_one_agent: &genie_one_agent
+    name: genie_one_agent
+    model: *default_llm
+    tools:
+    - *genie_one
+    prompt: |
+      You answer data questions with Genie One. Call `genie_ask` with the
+      question, then call `genie_poll_response` with the returned
+      conversation_id and response_id until its status is `completed`, and
+      answer from its final answer, including the "Explore in Databricks" link.
+      For a follow-up question, call `genie_ask` again without a
+      conversation_id; the conversation is continued automatically. Be concise.
+
+app:
+  name: dao_ai_genie_one
+  log_level: INFO
+  registered_model:
+    schema: *registry_schema
+    name: dao_ai_genie_one
+  agents:
+  - *genie_one_agent
+  orchestration:
+    memory: *memory
+  environment_vars:
+    RETAIL_AI_DATABRICKS_CLIENT_ID: *client_id
+    RETAIL_AI_DATABRICKS_CLIENT_SECRET: *client_secret

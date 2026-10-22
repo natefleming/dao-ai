@@ -1008,7 +1008,7 @@ def generate_user_api_scopes(config: AppConfig) -> list[str]:
             obo_resources.append(table)
 
     # RESOURCELESS MCP tools carry OBO on the function because there is no
-    # resource object to declare it on: the workspace-wide Genie MCP server
+    # resource object to declare it on: the Genie One MCP server
     # (``genie: true``), the serverless DBSQL MCP server (``sql: true``), a
     # direct ``url`` server, and a Unity-AI-Gateway MCP service securable
     # (``service: catalog.schema.name``) all front no registerable resource.

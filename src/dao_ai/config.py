@@ -814,6 +814,11 @@ class ServingMode(str, Enum):
 #: auto-discovering MCP-hosted Apps across an account.
 MCP_APP_PREFIX: str = "mcp-"
 
+#: Unity AI Gateway MCP service behind ``genie: true`` (Genie One MCP). It
+#: replaces the Beta ``/api/2.0/mcp/genie`` endpoint, which is deprecated and
+#: sunsets 2026-10-31.
+GENIE_ONE_MCP_SERVICE: str = "system.ai.genie_one_mcp"
+
 
 def app_name_for(name: str, *, as_mcp: bool = False) -> str:
     """Normalize a config ``app.name`` to its deployed Databricks App name.
@@ -6843,7 +6848,17 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
     )
     genie: Optional[bool] = Field(
         default=None,
-        description="Enable the workspace-wide Databricks Genie MCP server (queries across all Genie spaces in the workspace, no space_id required).",
+        description=(
+            "Enable the workspace-wide Genie One MCP server (answers questions "
+            "across the workspace, no space_id required). Routes to the Unity AI "
+            "Gateway service ``system.ai.genie_one_mcp`` "
+            "(``{host}/ai-gateway/mcp-services/system.ai.genie_one_mcp``), which "
+            "replaces the deprecated Beta ``/api/2.0/mcp/genie`` endpoint "
+            "(sunset 2026-10-31). OBO calls need the ``ai-gateway`` user scope "
+            "and the caller needs EXECUTE on the service. The Genie One tools "
+            "keep the Genie conversation_id in session state so follow-up "
+            "questions continue the same conversation."
+        ),
     )
     sql: Optional[bool] = Field(
         default=None,
@@ -6923,7 +6938,8 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         are under-scoped.
 
         Mapping (mirrors :meth:`mcp_url`):
-          - genie_room / genie      → ``dashboards.genie``      (→ genie, mcp.genie)
+          - genie_room              → ``dashboards.genie``      (→ genie, mcp.genie)
+          - genie (Genie One)       → ``ai-gateway`` (served by the Unity AI Gateway)
           - sql / functions         → ``sql.warehouses``        (→ sql, mcp.functions)
           - vector_search           → ``vectorsearch.vector-search-indexes``
                                                                 (→ vector-search, mcp.vectorsearch)
@@ -6931,7 +6947,7 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
           - service (UC MCP securable) → ``ai-gateway`` (Unity AI Gateway OBO scope)
           - url / app (opaque)      → ``serving.serving-endpoints`` (best-effort default)
         """
-        if self.genie_room is not None or self.genie:
+        if self.genie_room is not None:
             return ["dashboards.genie"]
         if self.sql or self.functions is not None:
             return ["sql.warehouses"]
@@ -6939,8 +6955,9 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             return ["vectorsearch.vector-search-indexes"]
         if self.connection is not None:
             return ["catalog.connections"]
-        if self.service is not None:
-            # A UC MCP service securable is reached through the Unity AI Gateway
+        if self.service is not None or self.genie:
+            # A UC MCP service securable (including Genie One, ``genie: true``)
+            # is reached through the Unity AI Gateway
             # (`/ai-gateway/mcp-services/<securable>`), so OBO calls need the
             # ``ai-gateway`` user scope — the same scope a gateway-routed model
             # uses. It is valid on both Apps and Model Serving.
@@ -6948,6 +6965,13 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         # Direct url / Databricks App MCP: endpoint kind is opaque here, so fall
         # back to the generic serving scope.
         return ["serving.serving-endpoints"]
+
+    @property
+    def is_genie_one(self) -> bool:
+        """Whether this server is Genie One MCP (``genie: true`` or the service)."""
+        return self.genie is True or (
+            self.service is not None and value_of(self.service) == GENIE_ONE_MCP_SERVICE
+        )
 
     def as_resources(self) -> Sequence[DatabricksResource]:
         """MCP functions don't declare static resources."""
@@ -7002,14 +7026,15 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
         - If app is set, retrieves URL from Databricks App via workspace client
         - If connection is set, constructs URL from connection
         - If genie_room is set, constructs Genie MCP URL
-        - If genie is set, constructs workspace-wide Genie MCP URL (no space_id)
+        - If genie is set, constructs the Genie One MCP URL (Unity AI Gateway)
         - If sql is set, constructs DBSQL MCP URL (serverless)
         - If vector_search is set, constructs Vector Search MCP URL
         - If functions is set, constructs UC Functions MCP URL
 
         URL patterns (per https://docs.databricks.com/aws/en/generative-ai/mcp/managed-mcp):
         - Genie (per-space): https://{host}/api/2.0/mcp/genie/{space_id}
-        - Genie (workspace-wide): https://{host}/api/2.0/mcp/genie (all spaces)
+        - Genie One (workspace-wide): https://{host}/ai-gateway/mcp-services/system.ai.genie_one_mcp
+          (replaces the Beta https://{host}/api/2.0/mcp/genie, sunset 2026-10-31)
         - DBSQL: https://{host}/api/2.0/mcp/sql (serverless, workspace-level)
         - Vector Search: https://{host}/api/2.0/mcp/vector-search/{catalog}/{schema}
         - UC Functions: https://{host}/api/2.0/mcp/functions/{catalog}/{schema}
@@ -7039,9 +7064,9 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             space_id: str = value_of(self.genie_room.space_id)
             return f"{workspace_host}/api/2.0/mcp/genie/{space_id}"
 
-        # Workspace-wide Genie MCP server (serverless, no space_id)
+        # Genie One MCP (workspace-wide, no space_id) via the Unity AI Gateway
         if self.genie:
-            return f"{workspace_host}/api/2.0/mcp/genie"
+            return f"{workspace_host}/ai-gateway/mcp-services/{GENIE_ONE_MCP_SERVICE}"
 
         # DBSQL MCP server (serverless, workspace-level)
         if self.sql:

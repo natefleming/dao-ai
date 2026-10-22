@@ -439,11 +439,18 @@ async def _call_tool_with_capabilities(
 
 
 def _is_transient_http_error(exc: BaseException) -> bool:
-    """Return True for httpx.HTTPStatusError with a retryable status code."""
+    """Return True for httpx.HTTPStatusError with a retryable status code.
+
+    Follows ``__cause__`` so an error re-raised with context (e.g. the
+    ``RuntimeError`` that ``_afetch_tools_from_server`` raises ``from`` the
+    HTTP error) is still recognized and retried.
+    """
     if isinstance(exc, httpx.HTTPStatusError):
         return exc.response.status_code in _TRANSIENT_HTTP_STATUS_CODES
     if isinstance(exc, ExceptionGroup):
         return any(_is_transient_http_error(e) for e in exc.exceptions)
+    if exc.__cause__ is not None:
+        return _is_transient_http_error(exc.__cause__)
     return False
 
 
@@ -473,6 +480,18 @@ async def _afetch_tools_from_server(function: McpFunctionModel) -> list[Tool]:
     Raises:
         RuntimeError: If connection to MCP server fails after all retries.
     """
+    from dao_ai.tools.genie_one import (
+        genie_one_tool_definitions,
+        uses_static_genie_one_tools,
+    )
+
+    if uses_static_genie_one_tools(function):
+        logger.info(
+            "Using built-in Genie One tool definitions (no user identity at "
+            "Model Serving load; calls run on behalf of the user per request)"
+        )
+        return genie_one_tool_definitions()
+
     client = _build_mcp_client(function)
 
     try:
@@ -701,6 +720,11 @@ async def acreate_mcp_tools(
             ),
         )
 
+    if function.is_genie_one:
+        from dao_ai.tools.genie_one import create_genie_one_tool
+
+        return [create_genie_one_tool(function, tool) for tool in mcp_tools]
+
     def _create_tool_wrapper(mcp_tool: Tool) -> RunnableLike:
         """
         Create a LangChain tool wrapper for an MCP tool.
@@ -830,6 +854,11 @@ def create_mcp_tools(
                 mcp_tool.description[:100] if mcp_tool.description else None
             ),
         )
+
+    if function.is_genie_one:
+        from dao_ai.tools.genie_one import create_genie_one_tool
+
+        return [create_genie_one_tool(function, tool) for tool in mcp_tools]
 
     def _create_tool_wrapper(mcp_tool: Tool) -> RunnableLike:
         """

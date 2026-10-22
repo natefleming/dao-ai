@@ -78,7 +78,8 @@ flowchart TB
 | [`custom_mcp.yaml`](./custom_mcp.yaml) | 🛠️ Custom URL | Self-hosted MCP App via explicit `url:` (JIRA example) |
 | [`custom_mcp_app.yaml`](./custom_mcp_app.yaml) | 📱 Custom App | Self-hosted MCP App via `app:` resource — URL resolved dynamically |
 | [`filtered_mcp.yaml`](./filtered_mcp.yaml) | 🔒 Filtered | Tool filtering with include/exclude patterns |
-| [`meta_mcp.yaml`](./meta_mcp.yaml) | 🧬 Meta | Workspace-wide Genie MCP (`genie: true`) + per-server `_meta` parameters |
+| [`meta_mcp.yaml`](./meta_mcp.yaml) | 🧬 Meta | Genie One MCP (`genie: true`) + per-server `_meta` parameters |
+| [`genie_one_mcp.yaml`](./genie_one_mcp.yaml) | 🧞 Genie One | Genie One MCP (OBO) + Lakebase checkpointer — conversation continuity on Apps and Model Serving |
 | [`mcp_with_connection.yaml`](./mcp_with_connection.yaml) | 📡 Serve + register | Serve dao-ai *as* an MCP server and register a UC connection with the Unity AI Gateway for Genie One (`--as-mcp --with-connection`) |
 
 > The patterns above **consume** MCP servers as agent tools. The last row is the
@@ -168,7 +169,46 @@ tools:
       genie_room: *retail_genie_room      # ← Reference to genie room config
       client_id: *client_id
       client_secret: *client_secret
+
+  # 🧞 Genie One MCP (workspace-wide, no space_id)
+  genie_all_mcp: &genie_all_mcp
+    name: genie_all_mcp
+    function:
+      type: mcp
+      genie: true                         # ← system.ai.genie_one_mcp via Unity AI Gateway
+      on_behalf_of_user: true
 ```
+
+### Genie One MCP (`genie: true`)
+
+`genie: true` connects to **Genie One MCP**, the Unity AI Gateway service
+`system.ai.genie_one_mcp` at `{host}/ai-gateway/mcp-services/system.ai.genie_one_mcp`.
+It replaces the Beta endpoint `{host}/api/2.0/mcp/genie`, which Databricks
+deprecated and sunsets on **2026-10-31**. The per-space `genie_room:` server
+(`/api/2.0/mcp/genie/{space_id}`) is unchanged.
+
+- **Tools** come straight from the server: `genie_ask` → `genie_poll_response`
+  (repeat until `completed`) → `genie_get_query_result`, plus `genie_cancel_response`.
+- **Conversation continuity**: dao-ai keeps the Genie `conversation_id` in
+  `session.genie.spaces.genie_one`. A later `genie_ask` without a
+  `conversation_id` continues the same Genie conversation. That holds within a
+  request and, with a `memory.checkpointer`, across requests that share a
+  `thread_id` (the id is echoed in `custom_outputs.session.genie.spaces`).
+  On Model Serving the checkpointer must be persistent (e.g. Lakebase, as in
+  [`genie_one_mcp.yaml`](./genie_one_mcp.yaml)); an in-memory one isn't shared
+  across serving workers and replicas.
+  Pass `conversation_id` explicitly to override it.
+- **Auth**: OBO calls need the `ai-gateway` user scope (dao-ai emits it for
+  Databricks Apps and Model Serving). The caller needs `EXECUTE` on
+  `system.ai.genie_one_mcp`.
+- **Model Serving**: a served model has no user identity at load, so an OBO
+  Genie One server can't be listed then. dao-ai uses the server's tool
+  definitions bundled with the package instead, and each call still runs as
+  the requesting user. Everywhere else the tools are listed live.
+- Calls to `genie_poll_response` / `genie_get_query_result` /
+  `genie_cancel_response` are retried on transient gateway errors (429/5xx);
+  `genie_ask` is not, since a retry could start a second Genie turn.
+- `service: system.ai.genie_one_mcp` is equivalent to `genie: true`.
 
 ### Data Flow
 

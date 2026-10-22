@@ -32,6 +32,7 @@ from dao_ai.apps.resources import (
     _extract_volume_resources,
     _extract_warehouse_resources,
     generate_app_resources,
+    adapt_user_api_scopes_for_model_serving,
     generate_user_api_scopes,
 )
 from dao_ai.config import (
@@ -438,8 +439,9 @@ class TestMcpFunctionApiScopes:
         fn = McpFunctionModel(genie_room=GenieRoomModel(name="g", space_id="01fABC"))
         assert list(fn.api_scopes) == ["dashboards.genie"]
 
-    def test_genie_all_scope(self) -> None:
-        assert list(McpFunctionModel(genie=True).api_scopes) == ["dashboards.genie"]
+    def test_genie_one_scope_is_ai_gateway(self) -> None:
+        # genie: true is Genie One MCP, served by the Unity AI Gateway.
+        assert list(McpFunctionModel(genie=True).api_scopes) == ["ai-gateway"]
 
     def test_sql_scope(self) -> None:
         assert list(McpFunctionModel(sql=True).api_scopes) == ["sql.warehouses"]
@@ -490,12 +492,16 @@ class TestMcpToolObOUserScopes:
         )
 
     def test_resourceless_genie_true_obo_emits_scopes(self) -> None:
-        # genie: true (workspace-wide) has no resource object to declare OBO on,
+        # genie: true (Genie One) has no resource object to declare OBO on,
         # so the tool-level flag is the only source — it MUST emit.
         fn = McpFunctionModel(genie=True, on_behalf_of_user=True)
         cfg = self._agent_cfg(ToolModel(name="genie_all", function=fn), "rl-genie")
         scopes = generate_user_api_scopes(cfg)
-        assert "genie" in scopes and "mcp.genie" in scopes
+        assert "ai-gateway" in scopes
+        # The Beta endpoint's genie scopes are no longer needed.
+        assert "genie" not in scopes and "mcp.genie" not in scopes
+        # ai-gateway is also a valid Model Serving OBO scope.
+        assert "ai-gateway" in adapt_user_api_scopes_for_model_serving(scopes)
 
     def test_resourceless_sql_true_obo_emits_scopes(self) -> None:
         fn = McpFunctionModel(sql=True, on_behalf_of_user=True)

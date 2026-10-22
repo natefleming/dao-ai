@@ -86,10 +86,57 @@ def test_decide_graph_turn_carries_genie_session_ids():
         )
     )
 
+    session = result.graph_input.pop("session")
     assert result.graph_input == {
         "messages": [{"role": "user", "content": "hi"}],
         "genie_conversation_ids": {"space_1": "conv_1"},
     }
+    # The Genie tools read session.genie.spaces, so a pasted-back session
+    # continues its conversations without a checkpointer.
+    assert session.genie.get_conversation_id("space_1") == "conv_1"
+
+
+@pytest.mark.unit
+def test_decide_graph_turn_ignores_malformed_genie_session_ids():
+    graph = _make_graph(checkpointer=False)
+    result = asyncio.run(
+        decide_graph_turn(
+            graph=graph,
+            messages=[{"role": "user", "content": "hi"}],
+            custom_inputs=None,
+            runtime_config={"configurable": {"thread_id": "t1"}},
+            session_input={"genie_conversation_ids": {"a": None, "b": 7, "c": ""}},
+        )
+    )
+    assert "session" not in result.graph_input
+
+
+@pytest.mark.unit
+def test_decide_graph_turn_checkpointed_genie_space_wins():
+    from dao_ai.state import SessionState
+
+    checkpointed = SessionState()
+    checkpointed.genie.update_space(space_id="space_1", conversation_id="newer")
+
+    class Snap:
+        interrupts = ()
+        values = {"session": checkpointed}
+
+    graph = _make_graph(checkpointer=True, aget_state_return=Snap())
+    result = asyncio.run(
+        decide_graph_turn(
+            graph=graph,
+            messages=[{"role": "user", "content": "hi"}],
+            custom_inputs=None,
+            runtime_config={"configurable": {"thread_id": "t1"}},
+            session_input={
+                "genie_conversation_ids": {"space_1": "older", "space_2": "conv_2"}
+            },
+        )
+    )
+    seeded = result.graph_input["session"].genie
+    assert "space_1" not in seeded.spaces
+    assert seeded.get_conversation_id("space_2") == "conv_2"
 
 
 @pytest.mark.unit

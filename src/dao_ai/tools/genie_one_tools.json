@@ -1,0 +1,85 @@
+[
+  {
+    "name": "genie_ask",
+    "description": "Ask Databricks Genie a natural-language data question. Genie searches the user's enterprise data in Databricks, writes SQL, and returns a grounded answer with a deep link back into the Databricks UI where the user can see the full result (including any visualizations Genie produced).\n\n## Transport behavior\nThis tool returns one of two response shapes depending on the host's MCP transport:\n- **Streaming-capable hosts** (those that attach `_meta.progressToken` to the request): the server holds the connection open and yields progress notifications while Genie thinks, then returns the final answer in the same `tools/call` result. Do NOT call `genie_poll_response` afterwards — the answer is already in the response.\n- **Polling hosts** (no `progressToken`): the server returns immediately with `conversation_id`, `response_id`, and `status: in_progress`. Call `genie_poll_response` to retrieve the final answer.\nDetect which path you got: if the response contains `status: in_progress` with IDs, you are on the polling path and must call `genie_poll_response`. Otherwise the final answer is already in this response.\n\n## Typical flow (polling host)\n1. Call `genie_ask(question='...')` — returns `conversation_id`, `response_id`, and an initial `status`. The Genie agent continues running in the background. (The `deep_link` back into the Databricks UI comes from `genie_poll_response`, not from this call.)\n2. Acknowledge to the user in ONE short sentence that you've sent the question to Genie (e.g. \"Asking Genie now — let me check on progress.\"). Don't describe what Genie is doing yet — you don't know.\n3. Call `genie_poll_response(conversation_id, response_id)` repeatedly while `status == \"in_progress\"`. The poll exposes step summaries on two surfaces: a bulleted list at the top of the textual `content` (Thinking / Running SQL / Query result) plus a one-line instruction, and a typed `structuredContent.progress_steps` list with the same entries. Use whichever your host surfaces. After each poll:\n   - **If progress steps are present** (non-empty `progress_steps`, or step bullets in the body): write ONE sentence (~25 words max) narrating the LAST step — pull the specific table name, query, or result from it (e.g. \"Found `samples.nyctaxi.trips`, ran a pickup-ZIP count — 10001 leads with 1,227 trips.\"). No internal system language (\"Databricks thread\", \"MCP\", \"backend\").\n   - **If no progress steps yet:** say nothing — just call `genie_poll_response` again silently.\n4. When `status == \"completed\"`, reply to the user with Genie's result. The markdown body contains Genie's final response, tables, and links. Your reply MUST include:\n   - **Bold the key numbers** the user asked about.\n   - The `[Explore in Databricks](url)` link rendered as a clickable markdown link — copy it verbatim from the body, do not paraphrase it.\n   - Any other `[...](url)` links to cited artifacts (dashboards, tables, queries) that appear in the body.\n\n## Conversations\nFor follow-up questions on the same topic, pass `conversation_id` from the previous `genie_ask` response to continue the same Genie conversation.\n\n## Notes\n- Very large result sets may be truncated when returned through this tool — the `[Explore in Databricks]` deep link is the canonical destination for the complete answer.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "question": {
+          "type": "string",
+          "description": "The natural-language data question to ask Genie."
+        },
+        "conversation_id": {
+          "type": "string",
+          "description": "Optional. Continue an existing Genie conversation by passing its ID."
+        }
+      },
+      "required": [
+        "question"
+      ]
+    }
+  },
+  {
+    "name": "genie_poll_response",
+    "description": "Fetch the latest state of an in-flight or completed Genie response. Returns the current state as rendered markdown in `content` and the typed fields (status, response_id, conversation_id, deep_link, final_answer, progress_steps, narration_instruction) under `structuredContent` for hosts that parse it. Call repeatedly while `status == \"in_progress\"`; each call re-fetches the full response so far. Wait approximately 2–5 seconds between polls — Genie agent turns typically complete in 70–260 seconds, so polling faster wastes upstream capacity without improving latency.\n\n## How to narrate progress to the user\nBoth surfaces carry the same data: the in_progress body opens with a bullet list of step summaries and a one-line instruction, and `structuredContent.progress_steps` / `narration_instruction` mirror them as typed fields. Use whichever your host surfaces. After each poll:\n- **If `progress_steps` is non-empty** (equivalently: the body lists step bullets): narrate the LAST step to the user in ONE sentence (~25 words max), keeping the specific table, query, or result detail intact (e.g. \"Found `samples.nyctaxi.trips`, ran a pickup-ZIP count — 10001 leads with 1,227 trips.\"). The user does not see this tool's output, only your text messages, so do NOT collapse multiple polls into one generic \"still working\" or \"querying data\" line.\n- **If `progress_steps` is null / empty:** say nothing — just call `genie_poll_response` again silently.\n- Never mention internal system language (\"Databricks thread\", \"MCP\", \"backend\", \"polling\").\n\nWhen `status == \"completed\"` (or \"incomplete\"/\"failed\"), stop polling and reply to the user. Your reply MUST include the `[Explore in Databricks](url)` link rendered verbatim from the body — do not paraphrase it. Also include any other cited artifact links, and bold the key numbers.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "description": "The `conversation_id` from the `genie_ask` response (same conversation, whether new or continued)."
+        },
+        "response_id": {
+          "type": "string",
+          "description": "The `response_id` from the `genie_ask` response."
+        }
+      },
+      "required": [
+        "conversation_id",
+        "response_id"
+      ]
+    }
+  },
+  {
+    "name": "genie_get_query_result",
+    "description": "Fetch the full SQL result — column schema and rows — for a single query Genie ran in a response. Use this after `genie_poll_response` reports `status: completed`. Pass the same `conversation_id` and `response_id` you polled with, plus the query's `item_id`. The `item_id` appears on two surfaces of that poll — use whichever your host shows you: `structuredContent.query_items[].item_id`, or the `Tool-call IDs` agent comment at the end of the poll text. A valid `item_id` looks like `pub_..._output`. NEVER pass a `query_...` embed id (from the result-table comment markers) as `item_id` — it will not resolve.\n\nReturns the result on both surfaces: the serialized result in `content` for you to read and reason over, and the same typed `structuredContent` (`columns`, `rows`, `total_row_count`, `truncated`) for a host UI to render its own table or chart.\n\nNotes:\n- If `ready` is false (statement still RUNNING/PENDING), call `genie_poll_response` until `status: completed`, then retry.\n- Large results are the inline chunk Genie produced; when `truncated` is true, the `[Explore in Databricks]` deep link from `genie_poll_response` is the canonical destination for the complete result.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "description": "The `conversation_id` from `genie_ask` / `genie_poll_response`."
+        },
+        "response_id": {
+          "type": "string",
+          "description": "The `response_id` from `genie_ask` / `genie_poll_response`."
+        },
+        "item_id": {
+          "type": "string",
+          "description": "The query item id from `genie_poll_response` — `structuredContent.query_items[].item_id`, or the `Tool-call IDs` agent comment in the poll text. Looks like `pub_..._output`; never a `query_...` embed id."
+        }
+      },
+      "required": [
+        "conversation_id",
+        "response_id",
+        "item_id"
+      ]
+    }
+  },
+  {
+    "name": "genie_cancel_response",
+    "description": "Stop a Genie response that is still being generated. Use this when the user asks to cancel/stop a question you started with `genie_ask` and were tracking with `genie_poll_response`.\n\nPass the `conversation_id` from that `genie_ask` response. Cancellation is conversation-scoped and best-effort: it asks Genie to stop the turn that is currently running. It does NOT guarantee the turn stopped — if the answer had already finished, nothing changes. The result `status` is always `cancellation_requested`.\n\n## After cancelling\nTo ask a follow-up, call `genie_ask` again with the same `conversation_id` to continue the conversation.",
+    "inputSchema": {
+      "type": "object",
+      "properties": {
+        "conversation_id": {
+          "type": "string",
+          "description": "The `conversation_id` from the `genie_ask` response whose in-flight turn should stop."
+        }
+      },
+      "required": [
+        "conversation_id"
+      ]
+    }
+  }
+]

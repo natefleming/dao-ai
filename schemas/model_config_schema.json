@@ -8306,7 +8306,7 @@
             }
           ],
           "default": null,
-          "description": "Enable the workspace-wide Databricks Genie MCP server (queries across all Genie spaces in the workspace, no space_id required).",
+          "description": "Enable the workspace-wide Genie One MCP server (answers questions across the workspace, no space_id required). Routes to the Unity AI Gateway service ``system.ai.genie_one_mcp`` (``{host}/ai-gateway/mcp-services/system.ai.genie_one_mcp``), which replaces the deprecated Beta ``/api/2.0/mcp/genie`` endpoint (sunset 2026-10-31). OBO calls need the ``ai-gateway`` user scope and the caller needs EXECUTE on the service. The Genie One tools keep the Genie conversation_id in session state so follow-up questions continue the same conversation.",
           "title": "Genie"
         },
         "sql": {
