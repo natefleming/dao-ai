@@ -142,6 +142,7 @@ async def decide_graph_turn(
         return GraphTurn(resume_command=Command(resume={"decisions": decisions}))
 
     # 2. Snapshot-based resume from an interrupted graph.
+    snapshot: Any = None
     if graph.checkpointer is not None:
         snapshot = await graph.aget_state(config=runtime_config)
         if is_interrupted(snapshot):
@@ -178,18 +179,32 @@ async def decide_graph_turn(
     # 3. Fresh invocation.
     graph_input: dict[str, Any] = {"messages": messages}
     if "genie_conversation_ids" in session_input:
-        graph_input["genie_conversation_ids"] = session_input["genie_conversation_ids"]
+        pasted: Any = session_input["genie_conversation_ids"]
+        graph_input["genie_conversation_ids"] = pasted
         # The Genie tools read session.genie.spaces, so seed it too: a client
-        # that sends back custom_outputs.session (no checkpointer) continues
-        # its Genie conversations.
+        # that sends back custom_outputs.session continues its Genie
+        # conversations. Checkpointed spaces win over pasted-back ones, and
+        # malformed entries are ignored.
+        checkpointed: Any = (snapshot.values or {}).get("session") if snapshot else None
+        known: set[str] = (
+            set(checkpointed.genie.spaces)
+            if isinstance(checkpointed, SessionState)
+            else set()
+        )
         session = SessionState()
-        for space_id, conversation_id in session_input[
-            "genie_conversation_ids"
-        ].items():
-            session.genie.update_space(
-                space_id=space_id, conversation_id=conversation_id
-            )
-        graph_input["session"] = session
+        for space_id, conversation_id in (
+            pasted.items() if isinstance(pasted, dict) else ()
+        ):
+            if (
+                isinstance(conversation_id, str)
+                and conversation_id
+                and space_id not in known
+            ):
+                session.genie.update_space(
+                    space_id=str(space_id), conversation_id=conversation_id
+                )
+        if session.genie.spaces:
+            graph_input["session"] = session
     logger.trace(
         "HITL: fresh graph invocation",
         message_count=len(messages),

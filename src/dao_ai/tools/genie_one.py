@@ -151,16 +151,6 @@ def create_genie_one_tool(function: McpFunctionModel, mcp_tool: Tool) -> Runnabl
         )
         try:
             result: CallToolResult = await retrying(_call)
-            # A stored conversation can go stale (expired, deleted, another
-            # identity). Rather than failing every later ask on the thread,
-            # drop it and start a new Genie conversation once.
-            if injected and mcp_tool.name == GENIE_ASK_TOOL and result.isError:
-                logger.warning(
-                    "Stored Genie One conversation rejected; starting a new one",
-                    conversation_id=stored_conversation_id,
-                )
-                kwargs.pop("conversation_id")
-                result = await retrying(_call)
         except Exception as e:
             logger.error("MCP tool failed", tool_name=mcp_tool.name, error=str(e))
             raise
@@ -178,7 +168,20 @@ def create_genie_one_tool(function: McpFunctionModel, mcp_tool: Tool) -> Runnabl
             ]
         }
 
-        if mcp_tool.name == GENIE_ASK_TOOL and not result.isError:
+        if injected and mcp_tool.name == GENIE_ASK_TOOL and result.isError:
+            # The stored conversation may be stale (expired, deleted, another
+            # identity). Clear it so the next genie_ask starts a new Genie
+            # conversation instead of every later ask failing the same way.
+            # The session reducer merges keys, so clear by overwriting.
+            logger.warning(
+                "Genie One ask failed on the stored conversation; clearing it",
+                conversation_id=stored_conversation_id,
+            )
+            session.genie.update_space(
+                space_id=GENIE_ONE_SESSION_KEY, conversation_id=""
+            )
+            update["session"] = session
+        elif mcp_tool.name == GENIE_ASK_TOOL and not result.isError:
             payload: dict[str, Any] = result.structuredContent or {}
             conversation_id: str | None = payload.get("conversation_id")
             if conversation_id:

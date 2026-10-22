@@ -618,6 +618,7 @@ def get_genie_conversation_ids_from_state(
                 {
                     space_id: space.conversation_id
                     for space_id, space in session.genie.spaces.items()
+                    if space.conversation_id
                 }
             )
 

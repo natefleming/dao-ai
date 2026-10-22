@@ -185,34 +185,30 @@ class TestGenieOneConversationContinuity:
             _run(GENIE_ASK, {"messages": []}, call, question="q")
         assert call.await_count == 1
 
-    def test_stale_stored_conversation_starts_new_one(self) -> None:
+    def test_stale_stored_conversation_is_cleared_without_retry(self) -> None:
         session = SessionState()
         session.genie.update_space(
             space_id=GENIE_ONE_SESSION_KEY, conversation_id="stale"
         )
         rejected = _result({"error": "conversation not found"})
         rejected.isError = True
-        fresh = _result({"conversation_id": "c2", "response_id": "r1"})
-        outcomes = iter([rejected, fresh])
-        sent: list[dict[str, Any]] = []
+        command, call = _invoke(
+            GENIE_ASK, {"messages": [], "session": session}, rejected, question="q"
+        )
+        # No second ask (could start a duplicate Genie turn); the dead id is
+        # cleared so the next genie_ask starts a new conversation.
+        assert call.await_count == 1
+        assert command.update["messages"][0].status == "error"
+        cleared = command.update["session"].genie
+        assert cleared.get_conversation_id(GENIE_ONE_SESSION_KEY) == ""
 
-        async def _record(_fn, _session, _name, args, _meta) -> CallToolResult:
-            sent.append(dict(args))
-            return next(outcomes)
-
-        command = _run(
+        _, next_call = _invoke(
             GENIE_ASK,
-            {"messages": [], "session": session},
-            AsyncMock(side_effect=_record),
+            {"messages": [], "session": command.update["session"]},
+            _result({"conversation_id": "c2", "response_id": "r1"}),
             question="q",
         )
-        assert [a.get("conversation_id") for a in sent] == ["stale", None]
-        assert (
-            command.update["session"]
-            .genie.spaces[GENIE_ONE_SESSION_KEY]
-            .conversation_id
-            == "c2"
-        )
+        assert "conversation_id" not in _sent_args(next_call)
 
     def test_explicit_conversation_error_is_not_retried(self) -> None:
         rejected = _result({"error": "conversation not found"})

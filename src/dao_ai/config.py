@@ -6955,14 +6955,12 @@ class McpFunctionModel(BaseFunctionModel, IsDatabricksResource):
             return ["vectorsearch.vector-search-indexes"]
         if self.connection is not None:
             return ["catalog.connections"]
-        if self.service is not None:
-            # A UC MCP service securable is reached through the Unity AI Gateway
+        if self.service is not None or self.genie:
+            # A UC MCP service securable (including Genie One, ``genie: true``)
+            # is reached through the Unity AI Gateway
             # (`/ai-gateway/mcp-services/<securable>`), so OBO calls need the
             # ``ai-gateway`` user scope — the same scope a gateway-routed model
             # uses. It is valid on both Apps and Model Serving.
-            return ["ai-gateway"]
-        if self.genie:
-            # Genie One MCP is the ``system.ai.genie_one_mcp`` gateway service.
             return ["ai-gateway"]
         # Direct url / Databricks App MCP: endpoint kind is opaque here, so fall
         # back to the generic serving scope.
