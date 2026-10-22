@@ -71,23 +71,6 @@ def uses_static_genie_one_tools(function: McpFunctionModel) -> bool:
     )
 
 
-def _structured_content(result: CallToolResult) -> dict[str, Any]:
-    """Return the tool result's structured payload, falling back to JSON text."""
-    if isinstance(result.structuredContent, dict):
-        return result.structuredContent
-    for item in result.content:
-        text: str | None = getattr(item, "text", None)
-        if not text:
-            continue
-        try:
-            parsed: Any = json.loads(text)
-        except ValueError:
-            continue
-        if isinstance(parsed, dict):
-            return parsed
-    return {}
-
-
 def create_genie_one_tool(function: McpFunctionModel, mcp_tool: Tool) -> RunnableLike:
     """Wrap one Genie One MCP tool so it reads and writes the session conversation.
 
@@ -148,24 +131,23 @@ def create_genie_one_tool(function: McpFunctionModel, mcp_tool: Tool) -> Runnabl
                 conversation_id=stored_conversation_id,
             )
 
-        result: CallToolResult | None = None
-        async for attempt in AsyncRetrying(
+        async def _call() -> CallToolResult:
+            client = _build_mcp_client(function, runtime.context)
+            async with client.session("mcp_function") as mcp_session:
+                return await _call_tool_with_capabilities(
+                    function,
+                    mcp_session,
+                    mcp_tool.name,
+                    kwargs,
+                    _resolve_meta(function.meta),
+                )
+
+        result: CallToolResult = await AsyncRetrying(
             retry=retry_if_exception(_is_transient_http_error),
             wait=wait_exponential(multiplier=1, min=1, max=10),
             stop=stop_after_attempt(max_attempts),
             reraise=True,
-        ):
-            with attempt:
-                client = _build_mcp_client(function, runtime.context)
-                async with client.session("mcp_function") as mcp_session:
-                    result = await _call_tool_with_capabilities(
-                        function,
-                        mcp_session,
-                        mcp_tool.name,
-                        kwargs,
-                        _resolve_meta(function.meta),
-                    )
-        assert result is not None
+        )(_call)
 
         update: dict[str, Any] = {
             "messages": [
@@ -176,7 +158,7 @@ def create_genie_one_tool(function: McpFunctionModel, mcp_tool: Tool) -> Runnabl
         }
 
         if mcp_tool.name == GENIE_ASK_TOOL and not result.isError:
-            payload: dict[str, Any] = _structured_content(result)
+            payload: dict[str, Any] = result.structuredContent or {}
             conversation_id: str | None = payload.get("conversation_id")
             if conversation_id:
                 session.genie.update_space(

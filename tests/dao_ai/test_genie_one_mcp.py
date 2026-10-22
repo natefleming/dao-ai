@@ -1,12 +1,14 @@
 """Tests for Genie One MCP (``genie: true``) tools and conversation continuity."""
 
 import asyncio
+import json
 import os
 import time
 from contextlib import asynccontextmanager
 from typing import Any
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import httpx
 import pytest
 from langchain.tools import ToolRuntime
 from langgraph.types import Command
@@ -56,20 +58,25 @@ def _runtime(state: dict[str, Any]) -> ToolRuntime:
 
 
 def _result(payload: dict[str, Any]) -> CallToolResult:
-    import json
-
     return CallToolResult(
         content=[TextContent(type="text", text=json.dumps(payload))],
         structuredContent=payload,
     )
 
 
-def _invoke(
-    mcp_tool: Tool, state: dict[str, Any], result: CallToolResult, **kwargs: Any
-) -> tuple[Command, AsyncMock]:
-    """Run a Genie One tool against a mocked MCP session; return (Command, call)."""
+def _http_error(status: int) -> httpx.HTTPStatusError:
+    return httpx.HTTPStatusError(
+        str(status),
+        request=httpx.Request("POST", "https://h"),
+        response=httpx.Response(status),
+    )
+
+
+def _run(
+    mcp_tool: Tool, state: dict[str, Any], call: AsyncMock, **kwargs: Any
+) -> Command:
+    """Run a Genie One tool with ``call`` standing in for the MCP tools/call."""
     function = McpFunctionModel(genie=True, workspace_host="https://host")
-    call = AsyncMock(return_value=result)
 
     @asynccontextmanager
     async def _session(_name: str):
@@ -80,10 +87,18 @@ def _invoke(
     with (
         patch("dao_ai.tools.mcp._build_mcp_client", return_value=client),
         patch("dao_ai.tools.mcp._call_tool_with_capabilities", call),
+        patch("asyncio.sleep", new=AsyncMock()),
     ):
         tool = create_genie_one_tool(function, mcp_tool)
-        command = asyncio.run(tool.coroutine(runtime=_runtime(state), **kwargs))
-    return command, call
+        return asyncio.run(tool.coroutine(runtime=_runtime(state), **kwargs))
+
+
+def _invoke(
+    mcp_tool: Tool, state: dict[str, Any], result: CallToolResult, **kwargs: Any
+) -> tuple[Command, AsyncMock]:
+    """Run a Genie One tool returning ``result``; return (Command, call)."""
+    call = AsyncMock(return_value=result)
+    return _run(mcp_tool, state, call, **kwargs), call
 
 
 def _sent_args(call: AsyncMock) -> dict[str, Any]:
@@ -156,65 +171,18 @@ class TestGenieOneConversationContinuity:
         assert "42" in command.update["messages"][0].content
 
     def test_poll_retries_transient_gateway_error(self) -> None:
-        import httpx
-
-        error = httpx.HTTPStatusError(
-            "504",
-            request=httpx.Request("POST", "https://h"),
-            response=httpx.Response(504),
-        )
         ok = _result({"status": "completed", "final_answer": "42"})
-        function = McpFunctionModel(genie=True, workspace_host="https://host")
-        call = AsyncMock(side_effect=[error, ok])
-
-        @asynccontextmanager
-        async def _session(_name: str):
-            yield MagicMock()
-
-        client = MagicMock()
-        client.session = _session
-        with (
-            patch("dao_ai.tools.mcp._build_mcp_client", return_value=client),
-            patch("dao_ai.tools.mcp._call_tool_with_capabilities", call),
-            patch("asyncio.sleep", new=AsyncMock()),
-        ):
-            tool = create_genie_one_tool(function, GENIE_POLL)
-            command = asyncio.run(
-                tool.coroutine(
-                    runtime=_runtime({"messages": []}),
-                    conversation_id="c1",
-                    response_id="r1",
-                )
-            )
+        call = AsyncMock(side_effect=[_http_error(504), ok])
+        command = _run(
+            GENIE_POLL, {"messages": []}, call, conversation_id="c1", response_id="r1"
+        )
         assert call.await_count == 2
         assert "42" in command.update["messages"][0].content
 
     def test_ask_is_not_retried(self) -> None:
-        import httpx
-
-        error = httpx.HTTPStatusError(
-            "504",
-            request=httpx.Request("POST", "https://h"),
-            response=httpx.Response(504),
-        )
-        function = McpFunctionModel(genie=True, workspace_host="https://host")
-        call = AsyncMock(side_effect=error)
-
-        @asynccontextmanager
-        async def _session(_name: str):
-            yield MagicMock()
-
-        client = MagicMock()
-        client.session = _session
-        with (
-            patch("dao_ai.tools.mcp._build_mcp_client", return_value=client),
-            patch("dao_ai.tools.mcp._call_tool_with_capabilities", call),
-        ):
-            tool = create_genie_one_tool(function, GENIE_ASK)
-            with pytest.raises(httpx.HTTPStatusError):
-                asyncio.run(
-                    tool.coroutine(runtime=_runtime({"messages": []}), question="q")
-                )
+        call = AsyncMock(side_effect=_http_error(504))
+        with pytest.raises(httpx.HTTPStatusError):
+            _run(GENIE_ASK, {"messages": []}, call, question="q")
         assert call.await_count == 1
 
     def test_error_result_does_not_persist(self) -> None:
@@ -299,7 +267,7 @@ class TestGenieOneStaticDefinitions:
         ):
             tools = mcp._fetch_tools_from_server(function)
         build.assert_not_called()
-        assert [t.name for t in tools][0] == "genie_ask"
+        assert tools[0].name == "genie_ask"
 
 
 @pytest.mark.integration
@@ -345,8 +313,6 @@ class TestGenieOneMcpLive:
             return command
 
         def ask_and_wait(question: str) -> tuple[str, str]:
-            import json
-
             ask = json.loads(
                 call("genie_ask", question=question).update["messages"][0].content
             )
@@ -380,22 +346,13 @@ class TestGenieOneMcpLive:
 
 @pytest.mark.unit
 class TestTransientErrorDetection:
-    def _http_error(self, status: int) -> Exception:
-        import httpx
-
-        return httpx.HTTPStatusError(
-            str(status),
-            request=httpx.Request("POST", "https://h"),
-            response=httpx.Response(status),
-        )
-
     def test_wrapped_listing_error_is_transient(self) -> None:
         """tools/list failures are re-raised as RuntimeError; retry must see through."""
         from dao_ai.tools.mcp import _is_transient_http_error
 
         try:
             try:
-                raise ExceptionGroup("tg", [self._http_error(504)])
+                raise ExceptionGroup("tg", [_http_error(504)])
             except ExceptionGroup as e:
                 raise RuntimeError("Failed to list MCP tools") from e
         except RuntimeError as wrapped:
@@ -405,6 +362,6 @@ class TestTransientErrorDetection:
         from dao_ai.tools.mcp import _is_transient_http_error
 
         try:
-            raise RuntimeError("Failed") from self._http_error(403)
+            raise RuntimeError("Failed") from _http_error(403)
         except RuntimeError as wrapped:
             assert not _is_transient_http_error(wrapped)
