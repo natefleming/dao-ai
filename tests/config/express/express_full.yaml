@@ -1,0 +1,87 @@
+# yaml-language-server: $schema=../../../schemas/model_config_schema.json
+
+# Express-deployment matrix cells E/F/G/H: everything in express_code plus
+# third-party libs via `app.pip_requirements` (one pure-python, one native).
+# Run published (E) and development (F); also through `workflow up` (G) and
+# `--direct` (H). `environment_probe` must report both libs with versions.
+
+parameters:
+  catalog:
+    description: Unity Catalog catalog name
+    default: retail_consumer_goods
+  schema:
+    description: Schema within the catalog
+    default: hardware_store
+  llm:
+    description: Chat/reasoning serving endpoint used by the agent
+    default: databricks-claude-sonnet-4-5
+
+schemas:
+  express_schema: &express_schema
+    catalog_name: ${var.catalog}
+    schema_name: ${var.schema}
+
+resources:
+  skills:
+    express_probe: &express_probe_skill
+      name: express-probe
+      description: Express-deployment probe workflow.
+      path: skills/express-probe
+
+  models:
+    default_llm: &default_llm
+      name: ${var.llm}
+
+tools:
+  # `type: python` from the colocated `src/` dir (zero-config → code/express_tools).
+  environment_probe_tool: &environment_probe_tool
+    name: environment_probe
+    function:
+      type: python
+      name: express_tools.probe.environment_probe_tool
+
+  # `type: python` that USES the pip_requirements libraries (rapidfuzz + humanize)
+  # during inference, so a trace's tool span proves they execute, not just import.
+  fuzzy_product_lookup_tool: &fuzzy_product_lookup_tool
+    name: fuzzy_product_lookup
+    function:
+      type: python
+      name: express_tools.catalog.fuzzy_product_lookup_tool
+
+  # `type: factory` from the declared `app.code_paths` entry (→ code/express_lib).
+  greeting_tool: &greeting_tool
+    name: greet
+    function:
+      type: factory
+      name: express_lib.greeting.create_greeting_tool
+      args:
+        salutation: Ahoy
+
+agents:
+  assistant: &assistant
+    name: assistant
+    model: *default_llm
+    skills:
+    - *express_probe_skill
+    tools:
+    - *environment_probe_tool
+    - *greeting_tool
+    - *fuzzy_product_lookup_tool
+    prompt: |
+      You are a concise assistant. Follow the express-probe skill when asked
+      for a probe report. Always call tools rather than guessing.
+
+app:
+  name: express_full
+  log_level: INFO
+  registered_model:
+    name: express_full
+    schema: *express_schema
+  endpoint_name: express_full_dao
+  code_paths:
+  - express_lib
+  pip_requirements:
+  - humanize>=4.0
+  - rapidfuzz>=3.0
+  agents:
+  - *assistant

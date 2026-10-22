@@ -425,6 +425,7 @@ app:
   scale_to_zero: bool              # default: true
   workload_size: Small | Medium | Large   # default: Small
   python_version: string           # default: "3.12"
+  express_deployment: bool         # default: true; Model Serving express deploy (x86 serverless only, else standard build); see docs/express-deployments.md
   # deployment_target field removed — serving mode is chosen at deploy time via --mode (default apps)
   budget_policy_id: string         # Cost-attribution policy id
   app_space: string                # Existing App Space (Beta) to create the App in; see "App Spaces"
