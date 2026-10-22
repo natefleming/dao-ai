@@ -1,23 +1,24 @@
 # yaml-language-server: $schema=../../../schemas/model_config_schema.json
 #
 # Demonstrates two MCP features in dao-ai:
-#   1. `genie: true`  — workspace-wide managed Genie MCP server (no space_id)
+#   1. `genie: true`  — Genie One MCP (system.ai.genie_one_mcp on the Unity AI
+#                       Gateway; workspace-wide, no space_id). Replaces the Beta
+#                       /api/2.0/mcp/genie endpoint (sunset 2026-10-31).
 #   2. `meta: {...}`  — per-MCP-server `_meta` parameters (MCP spec)
 #
 # Deploys cleanly to a fresh workspace with minimal pre-provisioned resources.
-# Uses OBO auth so the deploying user's credentials drive every MCP call.
+# Genie One runs on behalf of the calling user (OBO, `ai-gateway` scope); the
+# DBSQL MCP server uses the app / endpoint identity.
 #
-# Required env vars (set before `dao-ai workflow up ...`):
-#   DAO_AI_WAREHOUSE_ID   - a SQL warehouse ID in the target workspace (for DBSQL meta)
-#
-# Optional env vars:
-#   DAO_AI_CATALOG        - UC catalog for MLflow model registration (default: main)
-#   DAO_AI_SCHEMA         - UC schema for MLflow model registration (default: default)
+# Required parameter (works for both Databricks Apps and Model Serving):
+#   dao-ai agent up -c meta_mcp.yaml -p <profile> --param warehouse_id=<id> [-m model_serving]
 
 # =============================================================================
 # PARAMETERS
 # =============================================================================
 parameters:
+  warehouse_id:
+    description: SQL warehouse ID pinned via `_meta` on DBSQL MCP calls (required).
   catalog:
     description: Unity Catalog catalog name
     default: retail_consumer_goods
@@ -38,16 +39,23 @@ resources:
     default_llm: &default_llm
       name: ${var.llm}
 
+# In-memory checkpointer: follow-up turns that send the same thread_id continue
+# the Genie One conversation (its id lives in the checkpointed session state).
+memory: &memory
+  checkpointer:
+    name: default_checkpointer                         # in-memory (no database)
+
 tools:
-  # Feature 1: workspace-wide Genie MCP (the new `genie: true` field)
+  # Feature 1: Genie One MCP (`genie: true`)
   genie_all_mcp: &genie_all_mcp
     name: genie_all_mcp
     function:
       type: mcp
-      genie: true                                      # NEW: workspace-wide Genie endpoint
-      # Use the app's own service principal (auto-injected by Databricks Apps).
-      # Omitting auth fields makes the MCP client fall back to the default
-      # Databricks SDK auth chain, which inside an App resolves to the SP token.
+      genie: true                                      # system.ai.genie_one_mcp via Unity AI Gateway
+      on_behalf_of_user: true                          # answer as the calling user (ai-gateway scope)
+      # Tools: genie_ask, genie_poll_response, genie_get_query_result,
+      # genie_cancel_response. dao-ai keeps the Genie conversation_id in
+      # session.genie.spaces.genie_one so follow-up questions continue it.
 
   # Feature 2: DBSQL MCP with `_meta.warehouse_id` (the new `meta` field)
   sql_mcp_with_meta: &sql_mcp_with_meta
@@ -56,8 +64,7 @@ tools:
       type: mcp
       sql: true                                        # serverless DBSQL MCP
       meta:                                            # NEW: per-call _meta sent on every tools/call
-        warehouse_id:                                  # pin a specific SQL warehouse
-          env: DAO_AI_WAREHOUSE_ID
+        warehouse_id: ${var.warehouse_id}              # pin a specific SQL warehouse
       # Use the app's own service principal (auto-injected by Databricks Apps).
 
 agents:
@@ -71,14 +78,19 @@ agents:
       You are a Databricks data assistant for end-to-end validation of two new MCP
       capabilities in dao-ai:
 
-        1. `genie_all_mcp` — workspace-wide Genie MCP server that can query any
+        1. `genie_all_mcp` — Genie One MCP server that can query any
            Genie space in the workspace (no space_id needed).
         2. `sql_mcp_with_meta` — the DBSQL MCP server with a pinned `warehouse_id`
            injected via the `_meta` parameter.
 
       When the user asks a SQL question, use `sql_mcp_with_meta` and call
-      `execute_sql`. When the user asks a natural-language data question that
-      spans Genie spaces, use `genie_all_mcp`. Be concise.
+      `execute_sql`. When the user asks a natural-language data question, use
+      Genie One: call `genie_ask` with the question, then call
+      `genie_poll_response` with the returned conversation_id and response_id
+      until its status is `completed`, then answer from its final answer and
+      include the "Explore in Databricks" link. For a follow-up question, call
+      `genie_ask` again without a conversation_id; the conversation is
+      continued automatically. Be concise.
 
 app:
   name: dao_ai_meta_mcp
@@ -88,6 +100,5 @@ app:
     name: dao_ai_meta_mcp
   agents:
   - *meta_mcp_agent
-  environment_vars:
-    DAO_AI_WAREHOUSE_ID:                               # Forwarded to the deployed app env
-      env: DAO_AI_WAREHOUSE_ID
+  orchestration:
+    memory: *memory                                    # thread_id-scoped checkpointer

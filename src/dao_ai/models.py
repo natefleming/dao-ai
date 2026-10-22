@@ -80,7 +80,7 @@ from dao_ai.messages import (
     has_mlflow_responses_messages,
     last_human_message,
 )
-from dao_ai.state import Context, context_configurable_fields
+from dao_ai.state import Context, SessionState, context_configurable_fields
 
 
 def _extract_reasoning_text(block: dict[str, Any]) -> str | None:
@@ -591,8 +591,9 @@ def get_genie_conversation_ids_from_state(
     """
     Extract genie_conversation_ids from a state snapshot.
 
-    This function extracts the genie_conversation_ids dictionary from the state
-    snapshot values if present.
+    Reads the legacy flat ``genie_conversation_ids`` key and the
+    ``session.genie.spaces`` written by the Genie tools (``type: genie`` and
+    Genie One MCP), so their conversations surface in ``custom_outputs``.
 
     Args:
         state_snapshot: The state snapshot to extract conversation IDs from
@@ -608,9 +609,17 @@ def get_genie_conversation_ids_from_state(
         state_values: dict[str, Any] = state_snapshot.values
 
         # Extract genie_conversation_ids from state values
-        genie_conversation_ids: dict[str, str] = state_values.get(
-            "genie_conversation_ids", {}
+        genie_conversation_ids: dict[str, str] = dict(
+            state_values.get("genie_conversation_ids") or {}
         )
+        session: Any = state_values.get("session")
+        if isinstance(session, SessionState):
+            genie_conversation_ids.update(
+                {
+                    space_id: space.conversation_id
+                    for space_id, space in session.genie.spaces.items()
+                }
+            )
 
         if genie_conversation_ids:
             logger.trace(

@@ -156,15 +156,39 @@ class TestMcpFunctionModelUrlGeneration:
         assert model.mcp_url == expected
 
     def test_genie_workspace_wide_url_generation(self):
-        """Test URL generation for workspace-wide Genie MCP server (no space_id)."""
+        """genie: true routes to Genie One MCP on the Unity AI Gateway."""
         model = McpFunctionModel(
             transport=TransportType.STREAMABLE_HTTP,
             genie=True,
             workspace_host="https://adb-123.azuredatabricks.net",
         )
-        # Workspace-wide Genie MCP server has no space_id; it queries across all spaces
-        expected = "https://adb-123.azuredatabricks.net/api/2.0/mcp/genie"
+        # Not the deprecated Beta /api/2.0/mcp/genie (sunset 2026-10-31).
+        expected = (
+            "https://adb-123.azuredatabricks.net"
+            "/ai-gateway/mcp-services/system.ai.genie_one_mcp"
+        )
         assert model.mcp_url == expected
+
+    def test_genie_true_matches_genie_one_service_url(self):
+        """genie: true and service: system.ai.genie_one_mcp are the same server."""
+        host = "https://adb-123.azuredatabricks.net"
+        sugar = McpFunctionModel(genie=True, workspace_host=host)
+        explicit = McpFunctionModel(
+            service="system.ai.genie_one_mcp", workspace_host=host
+        )
+        assert sugar.mcp_url == explicit.mcp_url
+        assert sugar.is_genie_one and explicit.is_genie_one
+
+    def test_is_genie_one_false_for_other_sources(self):
+        host = "https://adb-123.azuredatabricks.net"
+        assert not McpFunctionModel(sql=True, workspace_host=host).is_genie_one
+        assert not McpFunctionModel(
+            service="system.ai.microsoft_365", workspace_host=host
+        ).is_genie_one
+        assert not McpFunctionModel(
+            genie_room=GenieRoomModel(name="g", space_id="01fABC"),
+            workspace_host=host,
+        ).is_genie_one
 
     @patch("dao_ai.providers.databricks.VectorSearchClient")
     def test_vector_search_url_generation(self, mock_vsc_class):

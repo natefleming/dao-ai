@@ -227,7 +227,7 @@ tools:
       sql: bool                 # Use DBSQL MCP server
       functions: *my_schema     # Use UC Functions MCP
       genie_room: *genie        # Use Genie MCP for a single space (per-space URL)
-      genie: bool               # Use workspace-wide Genie MCP (all spaces, no space_id)
+      genie: bool               # Use Genie One MCP (system.ai.genie_one_mcp via Unity AI Gateway; no space_id)
       vector_search: *store     # Use AI Search MCP (field name kept for backwards compat)
       include_tools: [string]   # Tools to load (allowlist, supports glob)
       exclude_tools: [string]   # Tools to exclude (denylist, supports glob)
