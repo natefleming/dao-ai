@@ -41,6 +41,9 @@ resources:
 
 # In-memory checkpointer: follow-up turns that send the same thread_id continue
 # the Genie One conversation (its id lives in the checkpointed session state).
+# It lives in one process, so this holds on Databricks Apps but not on Model
+# Serving, whose workers and replicas don't share memory. For that, use a
+# persistent checkpointer (see genie_one_mcp.yaml, backed by Lakebase).
 memory: &memory
   checkpointer:
     name: default_checkpointer                         # in-memory (no database)

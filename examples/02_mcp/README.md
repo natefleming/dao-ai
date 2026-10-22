@@ -79,6 +79,7 @@ flowchart TB
 | [`custom_mcp_app.yaml`](./custom_mcp_app.yaml) | 📱 Custom App | Self-hosted MCP App via `app:` resource — URL resolved dynamically |
 | [`filtered_mcp.yaml`](./filtered_mcp.yaml) | 🔒 Filtered | Tool filtering with include/exclude patterns |
 | [`meta_mcp.yaml`](./meta_mcp.yaml) | 🧬 Meta | Genie One MCP (`genie: true`) + per-server `_meta` parameters |
+| [`genie_one_mcp.yaml`](./genie_one_mcp.yaml) | 🧞 Genie One | Genie One MCP (OBO) + Lakebase checkpointer — conversation continuity on Apps and Model Serving |
 | [`mcp_with_connection.yaml`](./mcp_with_connection.yaml) | 📡 Serve + register | Serve dao-ai *as* an MCP server and register a UC connection with the Unity AI Gateway for Genie One (`--as-mcp --with-connection`) |
 
 > The patterns above **consume** MCP servers as agent tools. The last row is the
@@ -193,6 +194,9 @@ deprecated and sunsets on **2026-10-31**. The per-space `genie_room:` server
   `conversation_id` continues the same Genie conversation. That holds within a
   request and, with a `memory.checkpointer`, across requests that share a
   `thread_id` (the id is echoed in `custom_outputs.session.genie.spaces`).
+  On Model Serving the checkpointer must be persistent (e.g. Lakebase, as in
+  [`genie_one_mcp.yaml`](./genie_one_mcp.yaml)); an in-memory one isn't shared
+  across serving workers and replicas.
   Pass `conversation_id` explicitly to override it.
 - **Auth**: OBO calls need the `ai-gateway` user scope (dao-ai emits it for
   Databricks Apps and Model Serving). The caller needs `EXECUTE` on
